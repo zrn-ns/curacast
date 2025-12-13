@@ -40,6 +40,7 @@ const ttsSchema = z.object({
   voices: z.array(z.string()).default(['Laomedeia']),
   chunkSize: z.number().default(1500),
   concurrency: z.number().default(6),
+  apiKey: z.string().optional(),
 });
 
 // サーバー設定

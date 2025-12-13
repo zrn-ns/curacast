@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { loadConfig, loadProfile } from './config/index.js';
 import { Pipeline } from './pipeline/index.js';
 import { Scheduler } from './pipeline/scheduler.js';
