@@ -5,11 +5,17 @@ import type { Article } from '../collectors/index.js';
 import type { UserProfile } from '../config/index.js';
 import { getLogger } from '../utils/logger.js';
 import { generateArticleId } from '../utils/text.js';
+import { fetchArticleContent, truncateContent } from '../utils/article-fetcher.js';
 
 export interface LLMScriptGeneratorConfig {
   provider: 'gemini' | 'openai';
   model: string;
   apiKey: string;
+}
+
+// 記事と取得した本文
+interface ArticleWithContent extends Article {
+  fetchedContent?: string;
 }
 
 export class LLMScriptGenerator implements ScriptGenerator {
@@ -25,8 +31,12 @@ export class LLMScriptGenerator implements ScriptGenerator {
       throw new Error('台本生成には少なくとも1つの記事が必要です');
     }
 
-    const prompt = this.buildPrompt(articles, profile);
-    this.logger.debug({ articleCount: articles.length }, 'LLMによる台本生成を開始');
+    // 記事の本文を取得
+    this.logger.info({ count: articles.length }, '記事本文を取得中...');
+    const articlesWithContent = await this.fetchArticleContents(articles);
+
+    const prompt = this.buildPrompt(articlesWithContent, profile);
+    this.logger.debug({ articleCount: articles.length, promptLength: prompt.length }, 'LLMによる台本生成を開始');
 
     try {
       const scriptContent = await this.callLLM(prompt);
@@ -55,19 +65,50 @@ export class LLMScriptGenerator implements ScriptGenerator {
     }
   }
 
-  private buildPrompt(articles: Article[], profile: UserProfile): string {
+  private async fetchArticleContents(articles: Article[]): Promise<ArticleWithContent[]> {
+    const results: ArticleWithContent[] = [];
+
+    // 並列で記事本文を取得（3件ずつ）
+    for (let i = 0; i < articles.length; i += 3) {
+      const batch = articles.slice(i, i + 3);
+      const batchResults = await Promise.all(
+        batch.map(async (article) => {
+          const fetched = await fetchArticleContent(article.url);
+          return {
+            ...article,
+            fetchedContent: fetched?.textContent
+              ? truncateContent(fetched.textContent, 3000) // 各記事最大3000文字
+              : undefined,
+          };
+        })
+      );
+      results.push(...batchResults);
+    }
+
+    const successCount = results.filter((r) => r.fetchedContent).length;
+    this.logger.info(
+      { total: articles.length, fetched: successCount },
+      '記事本文の取得完了'
+    );
+
+    return results;
+  }
+
+  private buildPrompt(articles: ArticleWithContent[], profile: UserProfile): string {
     const style = profile.scriptStyle;
     const customPrompt = profile.customPrompts?.scriptGeneration ?? '';
 
     const articlesSummary = articles
-      .map(
-        (a, i) =>
-          `### 記事${i + 1}: ${a.title}
+      .map((a, i) => {
+        const hasContent = !!a.fetchedContent;
+        return `### 記事${i + 1}: ${a.title}
 ソース: ${a.sourceName ?? a.source}
 URL: ${a.url}
-概要: ${a.description ?? '(なし)'}`
-      )
-      .join('\n\n');
+
+${hasContent ? `【記事本文】\n${a.fetchedContent}` : `【概要のみ】\n${a.description ?? '(なし)'}`}
+`;
+      })
+      .join('\n---\n\n');
 
     const toneDescription = {
       casual: '親しみやすく、友達に話すような口調',
@@ -75,8 +116,8 @@ URL: ${a.url}
       news: '簡潔で、事実を中心とした報道調',
     }[style.tone];
 
-    return `あなたはポッドキャストの台本ライターです。
-以下の記事を元に、${style.maxDuration}分程度のポッドキャスト台本を作成してください。
+    return `あなたは技術系ポッドキャストの台本ライターです。
+以下の記事を元に、${style.maxDuration}分程度の深掘りポッドキャスト台本を作成してください。
 
 ## トーン
 ${toneDescription}
@@ -93,12 +134,20 @@ ${customPrompt ? `## 追加の指示\n${customPrompt}\n` : ''}
 ## 紹介する記事
 ${articlesSummary}
 
+## 重要な指示
+1. **深掘り**: 各記事について、単なる紹介ではなく、内容を深く掘り下げて解説してください
+2. **背景説明**: なぜこの技術/トピックが重要なのか、背景や文脈を説明してください
+3. **具体例**: 可能であれば、具体的な使用例やユースケースを挙げてください
+4. **考察**: 記事の内容に対するあなた自身の見解や考察を加えてください
+5. **関連性**: 記事同士の関連性や、より大きなトレンドとの関係について触れてください
+6. **リスナーへの問いかけ**: 時折、リスナーに考えてもらうような問いかけを入れてください
+
 ## 出力形式
 - 話し言葉で自然に聞こえるように書いてください
-- 専門用語には簡単な説明を加えてください
-- 記事の内容を要約しつつ、リスナーが興味を持てるように紹介してください
+- 専門用語には必ず簡単な説明を加えてください
 - マークダウン記法は使わず、プレーンテキストで出力してください
-- 「では」「さて」などの接続詞を適度に使って、話の流れを自然にしてください
+- 「では」「さて」「ところで」などの接続詞を適度に使って、話の流れを自然にしてください
+- 各記事の紹介の間には、自然な繋ぎの言葉を入れてください
 
 台本を出力してください:`;
   }
@@ -140,7 +189,7 @@ ${articlesSummary}
       messages: [
         {
           role: 'system',
-          content: 'あなたはポッドキャストの台本ライターです。自然な話し言葉で台本を作成してください。',
+          content: 'あなたは技術系ポッドキャストの台本ライターです。記事の内容を深く掘り下げ、リスナーが理解しやすい自然な話し言葉で台本を作成してください。',
         },
         { role: 'user', content: prompt },
       ],
