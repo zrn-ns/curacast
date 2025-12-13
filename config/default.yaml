@@ -1,0 +1,63 @@
+# CuraCast 設定ファイル
+
+# 動作モード: batch（定期実行）, watch（ファイル監視）, once（1回実行）
+mode: batch
+
+# スケジュール設定（batchモード時）
+schedule:
+  cron: "0 7 * * *"  # 毎日朝7時に実行
+  timezone: "Asia/Tokyo"
+
+# 記事収集設定
+collectors:
+  rss:
+    enabled: true
+    feeds:
+      - name: "Zenn"
+        url: "https://zenn.dev/feed"
+        category: "tech"
+      - name: "Publickey"
+        url: "https://www.publickey1.jp/atom.xml"
+        category: "tech"
+
+  hatena:
+    enabled: true
+    categories:
+      - "テクノロジー"
+    minBookmarks: 50
+    maxArticles: 20
+
+  hackernews:
+    enabled: true
+    minPoints: 100
+    maxArticles: 15
+
+# LLM設定（記事選定・台本生成用）
+llm:
+  provider: "gemini"  # 'gemini' または 'openai'
+  model: "gemini-2.0-flash"
+  # apiKey: ${GEMINI_API_KEY}  # 環境変数から自動取得
+
+# TTS設定
+tts:
+  provider: "gemini"
+  model: "gemini-2.5-flash-preview-tts"
+  voices:
+    - "Laomedeia"
+  chunkSize: 1500
+  concurrency: 6
+
+# サーバー設定
+server:
+  port: 3000
+  feedUrl: "http://localhost:3000/feed.xml"
+
+# 出力設定
+output:
+  scriptsDir: "./output/scripts"
+  audioDir: "./output/audio"
+  dataDir: "./data"
+
+# ログ設定
+logging:
+  level: "info"  # 'debug', 'info', 'warn', 'error'

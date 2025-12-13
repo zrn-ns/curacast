@@ -1,0 +1,22 @@
+services:
+  curacast:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./output:/app/output
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FEED_URL=${FEED_URL:-http://localhost:3000/feed.xml}
+      - PORT=3000
+      - TZ=Asia/Tokyo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
