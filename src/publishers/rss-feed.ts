@@ -117,7 +117,7 @@ export class RSSFeedPublisher implements Publisher {
         {
           'itunes:image': {
             _attr: {
-              href: this.config.imageUrl ?? `${baseUrl}/images/podcast-cover.png`,
+              href: this.config.imageUrl ?? `${baseUrl}/images/podcast-cover.jpg`,
             },
           },
         },
@@ -157,7 +157,7 @@ export class RSSFeedPublisher implements Publisher {
         {
           'itunes:image': {
             _attr: {
-              href: this.config.imageUrl ?? `${baseUrl}/images/podcast-cover.png`,
+              href: this.config.imageUrl ?? `${baseUrl}/images/podcast-cover.jpg`,
             },
           },
         },
