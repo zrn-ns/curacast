@@ -164,26 +164,29 @@ export async function concatMp3Buffers(buffers: Buffer[], tempDir: string): Prom
   const timestamp = Date.now();
   const tempFiles: string[] = [];
 
+  // 絶対パスに変換（ffmpegが正しくファイルを参照できるようにする）
+  const absoluteTempDir = path.resolve(tempDir);
+
   try {
     // ディレクトリが存在しない場合は作成
-    await fs.mkdir(tempDir, { recursive: true });
+    await fs.mkdir(absoluteTempDir, { recursive: true });
 
     // 各バッファを一時ファイルとして保存
     for (let i = 0; i < buffers.length; i++) {
       const buffer = buffers[i];
       if (!buffer) continue;
-      const tempPath = path.join(tempDir, `chunk_${timestamp}_${i}.mp3`);
+      const tempPath = path.join(absoluteTempDir, `chunk_${timestamp}_${i}.mp3`);
       await fs.writeFile(tempPath, buffer);
       tempFiles.push(tempPath);
     }
 
-    // 連結リストファイルを作成
-    const listPath = path.join(tempDir, `concat_${timestamp}.txt`);
+    // 連結リストファイルを作成（絶対パスを使用）
+    const listPath = path.join(absoluteTempDir, `concat_${timestamp}.txt`);
     const listContent = tempFiles.map((f) => `file '${f}'`).join('\n');
     await fs.writeFile(listPath, listContent);
 
     // 出力ファイルパス
-    const outputPath = path.join(tempDir, `output_${timestamp}.mp3`);
+    const outputPath = path.join(absoluteTempDir, `output_${timestamp}.mp3`);
 
     // ffmpegで結合
     await new Promise<void>((resolve, reject) => {
