@@ -18,8 +18,13 @@ export interface PipelineResult {
   success: boolean;
   episodeId?: string;
   episodeTitle?: string;
+  scriptPath?: string;
   articleCount: number;
   error?: string;
+}
+
+export interface PipelineRunOptions {
+  scriptOnly?: boolean;
 }
 
 export class Pipeline {
@@ -50,9 +55,11 @@ export class Pipeline {
     this.logger.info('パイプラインを初期化しました');
   }
 
-  async run(): Promise<PipelineResult> {
+  async run(options: PipelineRunOptions = {}): Promise<PipelineResult> {
+    const { scriptOnly = false } = options;
+
     try {
-      this.logger.info('パイプライン実行を開始');
+      this.logger.info({ scriptOnly }, 'パイプライン実行を開始');
 
       // 1. 記事収集
       const articles = await this.collectArticles();
@@ -96,7 +103,19 @@ export class Pipeline {
       this.logger.info({ scriptId: script.id, title: script.title }, '台本を生成しました');
 
       // 台本をファイルに保存
-      await this.saveScript(script);
+      const scriptPath = await this.saveScript(script);
+
+      // scriptOnlyモードの場合はここで終了
+      if (scriptOnly) {
+        this.logger.info({ scriptPath }, '台本のみモード: 音声生成をスキップ');
+        return {
+          success: true,
+          episodeId: script.id,
+          episodeTitle: script.title,
+          scriptPath,
+          articleCount: selectionResult.selected.length,
+        };
+      }
 
       // 5. 音声生成
       const audioPath = await this.generateAudio(script);
@@ -130,6 +149,7 @@ export class Pipeline {
         success: true,
         episodeId: episode.id,
         episodeTitle: episode.title,
+        scriptPath,
         articleCount: selectionResult.selected.length,
       };
     } catch (error) {
@@ -181,11 +201,12 @@ export class Pipeline {
     return results.flat();
   }
 
-  private async saveScript(script: Script): Promise<void> {
+  private async saveScript(script: Script): Promise<string> {
     const fileName = `${script.id}.txt`;
     const filePath = path.join(this.config.output.scriptsDir, fileName);
     await fs.writeFile(filePath, script.content, 'utf-8');
     this.logger.debug({ path: filePath }, '台本を保存しました');
+    return filePath;
   }
 
   private async generateAudio(script: Script): Promise<string> {

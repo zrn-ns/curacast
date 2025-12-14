@@ -125,6 +125,20 @@ ${narrator?.catchphrase ? `- 口癖・決め台詞: 「${narrator.catchphrase}�
 
 この語り部のキャラクターになりきって台本を書いてください。名前は自己紹介で使ってください。`;
 
+    // 今日の日付を取得
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+    const weekdays = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+    const weekday = weekdays[today.getDay()];
+
+    const openingSection = style.includeIntro
+      ? `## オープニング
+今日は${dateStr}（${weekday}）です。
+番組の冒頭では、日付を読み上げて挨拶し、簡単なオープニングトークをしてください。
+その後、今日紹介するトピックを軽く予告してください。
+`
+      : '';
+
     return `あなたは技術系ポッドキャストの台本ライターです。
 以下の記事を元に、${style.maxDuration}分程度の深掘りポッドキャスト台本を作成してください。
 
@@ -136,7 +150,7 @@ ${toneDescription}
 ## 言語
 ${style.language === 'ja' ? '日本語' : style.language}
 
-${style.includeIntro ? '## オープニング\n番組の冒頭に挨拶と今日のトピック紹介を含めてください。\n' : ''}
+${openingSection}
 
 ${style.includeOutro ? '## エンディング\n番組の最後に締めの挨拶を含めてください。\n' : ''}
 

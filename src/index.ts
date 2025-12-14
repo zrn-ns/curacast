@@ -11,6 +11,7 @@ async function main(): Promise<void> {
   const configPath = args.find((a) => a.startsWith('--config='))?.split('=')[1];
   const profilePath = args.find((a) => a.startsWith('--profile='))?.split('=')[1];
   const modeOverride = args.find((a) => a.startsWith('--mode='))?.split('=')[1] as 'batch' | 'once' | undefined;
+  const scriptOnly = args.includes('--script-only');
 
   // 設定を読み込み
   const config = loadConfig(configPath);
@@ -30,11 +31,16 @@ async function main(): Promise<void> {
 
   if (mode === 'once') {
     // 1回実行モード
-    logger.info('1回実行モードで起動');
-    const result = await pipeline.run();
+    logger.info({ scriptOnly }, '1回実行モードで起動');
+    const result = await pipeline.run({ scriptOnly });
     if (result.success) {
       logger.info(
-        { episodeId: result.episodeId, episodeTitle: result.episodeTitle, articleCount: result.articleCount },
+        {
+          episodeId: result.episodeId,
+          episodeTitle: result.episodeTitle,
+          scriptPath: result.scriptPath,
+          articleCount: result.articleCount,
+        },
         '実行完了'
       );
     } else {
