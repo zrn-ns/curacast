@@ -13,6 +13,17 @@ collectors:
   rss:
     enabled: true
     feeds:
+      # ニュース系
+      - name: "NHKニュース"
+        url: "https://www.nhk.or.jp/rss/news/cat0.xml"
+        category: "news"
+      - name: "Yahoo!ニュース 主要"
+        url: "https://news.yahoo.co.jp/rss/topics/top-picks.xml"
+        category: "news"
+      - name: "Yahoo!ニュース 経済"
+        url: "https://news.yahoo.co.jp/rss/topics/business.xml"
+        category: "news"
+      # テック系
       - name: "Zenn"
         url: "https://zenn.dev/feed"
         category: "tech"
