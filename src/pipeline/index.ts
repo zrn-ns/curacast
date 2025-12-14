@@ -11,7 +11,7 @@ import { createRSSFeedPublisher, type RSSFeedPublisher } from '../publishers/rss
 import type { Episode } from '../publishers/index.js';
 import { JsonStorage } from '../storage/json-storage.js';
 import { splitText } from '../utils/text.js';
-import { getAudioDuration, concatMp3Buffers } from '../utils/audio.js';
+import { getAudioDuration, concatMp3Buffers, embedArtwork } from '../utils/audio.js';
 import { getLogger } from '../utils/logger.js';
 import { fetchArticleContent, truncateContent } from '../utils/article-fetcher.js';
 
@@ -384,10 +384,36 @@ export class Pipeline {
       tempDir
     );
 
-    // ファイルに保存
+    // 一時ファイルに保存
     const fileName = `${script.id}.mp3`;
+    const tempMp3Path = path.join(tempDir, `temp_${fileName}`);
     const outputPath = path.join(this.config.output.audioDir, fileName);
-    await fs.writeFile(outputPath, combinedBuffer);
+
+    await fs.mkdir(tempDir, { recursive: true });
+    await fs.writeFile(tempMp3Path, combinedBuffer);
+
+    // アートワークを埋め込み
+    const artworkPath = path.resolve('./public/images/podcast-cover.png');
+    try {
+      await fs.access(artworkPath);
+      await embedArtwork(tempMp3Path, artworkPath, outputPath, {
+        title: script.title,
+        artist: this.profile.narrator?.name ?? 'CuraCast',
+        album: 'CuraCast Podcast',
+      });
+      this.logger.debug('アートワークを埋め込みました');
+    } catch {
+      // アートワークがない場合は結合したファイルをそのまま使用
+      this.logger.debug('アートワークが見つからないため、埋め込みをスキップ');
+      await fs.rename(tempMp3Path, outputPath);
+    }
+
+    // 一時ファイルを削除
+    try {
+      await fs.unlink(tempMp3Path);
+    } catch {
+      // 削除エラーは無視（renameで移動済みの場合など）
+    }
 
     return outputPath;
   }

@@ -113,6 +113,45 @@ export function concatAudioBuffers(buffers: Buffer[]): Buffer {
   return Buffer.concat(buffers);
 }
 
+// MP3ファイルにアートワークを埋め込む
+export async function embedArtwork(
+  mp3Path: string,
+  artworkPath: string,
+  outputPath: string,
+  metadata?: { title?: string; artist?: string; album?: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let command = ffmpeg()
+      .input(mp3Path)
+      .input(artworkPath)
+      .outputOptions([
+        '-map', '0:a',
+        '-map', '1:v',
+        '-c:a', 'copy',
+        '-c:v', 'png',
+        '-id3v2_version', '3',
+        '-metadata:s:v', 'title=Album cover',
+        '-metadata:s:v', 'comment=Cover (front)',
+      ]);
+
+    // メタデータを追加
+    if (metadata?.title) {
+      command = command.outputOptions(['-metadata', `title=${metadata.title}`]);
+    }
+    if (metadata?.artist) {
+      command = command.outputOptions(['-metadata', `artist=${metadata.artist}`]);
+    }
+    if (metadata?.album) {
+      command = command.outputOptions(['-metadata', `album=${metadata.album}`]);
+    }
+
+    command
+      .on('end', () => resolve())
+      .on('error', (err) => reject(err))
+      .save(outputPath);
+  });
+}
+
 // 複数のMP3バッファをffmpegで正しく結合
 export async function concatMp3Buffers(buffers: Buffer[], tempDir: string): Promise<Buffer> {
   if (buffers.length === 0) {
