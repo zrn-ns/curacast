@@ -50,7 +50,7 @@ scriptStyle:
   tone: "casual"          # 'casual', 'formal', 'news'
   includeIntro: true      # オープニングを含める
   includeOutro: true      # エンディングを含める
-  maxDuration: 25         # 目標再生時間（分）
+  maxDuration: 15         # 目標再生時間（分）
   language: "ja"          # 言語
 
 # カスタムプロンプト（オプション）

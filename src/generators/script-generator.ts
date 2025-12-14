@@ -142,8 +142,13 @@ ${narrator?.catchphrase ? `- 口癖・決め台詞: 「${narrator.catchphrase}�
 `
       : '';
 
+    // 日本語の読み上げは約350文字/分
+    const targetCharacters = style.maxDuration * 350;
+
     return `あなたは技術系ポッドキャストの台本ライターです。
-以下の記事を元に、${style.maxDuration}分程度の深掘りポッドキャスト台本を作成してください。
+以下の記事を元に、**${style.maxDuration}分程度**（約${targetCharacters}文字）の深掘りポッドキャスト台本を作成してください。
+
+【重要】台本が短くなりすぎないよう注意してください。各記事について十分な深掘りを行い、目標の${style.maxDuration}分に近づけてください。
 
 ${narratorSection}
 
@@ -181,7 +186,12 @@ ${articlesSummary}
 - 各記事の紹介の間には、自然な繋ぎの言葉を入れてください
 - 各記事について、本文の内容を十分に紹介してから次の話題に移ってください
 - 記事の紹介は「こんな記事がありました」で終わらせず、本文の内容を深く掘り下げて解説してください
-- 1つの記事につき最低でも2〜3分程度の分量で話してください
+
+## 長さの目安（重要）
+- 台本全体で最低${targetCharacters}文字以上を目指してください
+- 1つの記事につき最低500〜800文字程度で紹介してください
+- オープニング・エンディングはそれぞれ200〜300文字程度
+- 短すぎる台本は不合格です。十分な長さを確保してください
 
 ## 重要な注意
 - 「承知しました」「以下に台本を作成します」などの前置きは絶対に含めないでください
@@ -205,6 +215,9 @@ ${articlesSummary}
     const response = await client.models.generateContent({
       model: this.config.model,
       contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        maxOutputTokens: 8192,
+      },
     });
 
     const candidate = response.candidates?.[0];
@@ -225,10 +238,11 @@ ${articlesSummary}
 
     const response = await client.chat.completions.create({
       model: this.config.model,
+      max_tokens: 8192,
       messages: [
         {
           role: 'system',
-          content: 'あなたは技術系ポッドキャストの台本ライターです。記事の内容を深く掘り下げ、リスナーが理解しやすい自然な話し言葉で台本を作成してください。',
+          content: 'あなたは技術系ポッドキャストの台本ライターです。記事の内容を深く掘り下げ、リスナーが理解しやすい自然な話し言葉で台本を作成してください。十分な長さの台本を作成することを心がけてください。',
         },
         { role: 'user', content: prompt },
       ],
