@@ -35,8 +35,20 @@ export class LLMScriptGenerator implements ScriptGenerator {
     this.logger.info({ count: articles.length }, '記事本文を取得中...');
     const articlesWithContent = await this.fetchArticleContents(articles);
 
+    return this.generateWithContent(articlesWithContent, profile);
+  }
+
+  /**
+   * 既に本文が取得済みの記事から台本を生成
+   * （本文取得をPipelineで行う場合に使用）
+   */
+  async generateWithContent(articlesWithContent: ArticleWithContent[], profile: UserProfile): Promise<Script> {
+    if (articlesWithContent.length === 0) {
+      throw new Error('台本生成には少なくとも1つの記事が必要です');
+    }
+
     const prompt = this.buildPrompt(articlesWithContent, profile);
-    this.logger.debug({ articleCount: articles.length, promptLength: prompt.length }, 'LLMによる台本生成を開始');
+    this.logger.debug({ articleCount: articlesWithContent.length, promptLength: prompt.length }, 'LLMによる台本生成を開始');
 
     try {
       const rawScript = await this.callLLM(prompt);
@@ -47,9 +59,9 @@ export class LLMScriptGenerator implements ScriptGenerator {
 
       const script: Script = {
         id: `${dateStr}-${randomSuffix}`,
-        title: this.generateTitle(articles, today),
+        title: this.generateTitle(articlesWithContent, today),
         content: scriptContent,
-        articles,
+        articles: articlesWithContent,
         generatedAt: today,
         estimatedDuration: this.estimateDuration(scriptContent),
       };

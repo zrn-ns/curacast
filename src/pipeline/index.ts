@@ -13,6 +13,12 @@ import { JsonStorage } from '../storage/json-storage.js';
 import { splitText } from '../utils/text.js';
 import { getAudioDuration, concatAudioBuffers } from '../utils/audio.js';
 import { getLogger } from '../utils/logger.js';
+import { fetchArticleContent, truncateContent } from '../utils/article-fetcher.js';
+
+// 記事と取得した本文
+interface ArticleWithContent extends Article {
+  fetchedContent?: string;
+}
 
 export interface PipelineResult {
   success: boolean;
@@ -73,8 +79,15 @@ export class Pipeline {
         return { success: true, articleCount: 0 };
       }
 
-      // 2. 重複チェック（処理済み記事を除外）
-      const newArticles = articles.filter((a) => !this.storage.isProcessed(a.id));
+      // 2. 重複チェック（処理済み記事を除外）+ 失敗URL除外
+      const newArticles = articles.filter((a) => {
+        if (this.storage.isProcessed(a.id)) return false;
+        if (this.storage.isUrlFailed(a.url)) {
+          this.logger.debug({ url: a.url }, '以前失敗したURLを除外');
+          return false;
+        }
+        return true;
+      });
       this.logger.info({ newCount: newArticles.length, totalCount: articles.length }, '新規記事をフィルタリング');
 
       if (newArticles.length === 0) {
@@ -82,31 +95,58 @@ export class Pipeline {
         return { success: true, articleCount: 0 };
       }
 
-      // 3. AI記事選定
+      // 3. AI記事選定（多めに選定、優先度付き）
       const selector = new LLMSelector({
         provider: this.config.llm.provider,
         model: this.config.llm.model,
         apiKey: this.config.llm.apiKey ?? '',
+        selectionMultiplier: 1.5, // 目標の1.5倍を選定
       });
       const selectionResult = await selector.select(newArticles, this.profile);
-      this.logger.info({ selectedCount: selectionResult.selected.length }, '記事を選定しました');
+      this.logger.info({ selectedCount: selectionResult.selected.length }, '記事を選定しました（優先度付き）');
 
       if (selectionResult.selected.length === 0) {
         this.logger.info('選定された記事がありません');
         return { success: true, articleCount: 0 };
       }
 
-      // 4. 台本生成
+      // 4. 記事本文を取得し、成功した記事から目標数を採用
+      const articlesWithContent = await this.fetchArticleContentsWithFallback(
+        selectionResult.selected,
+        selectionResult.priorities,
+        this.profile.maxArticlesPerRun
+      );
+      this.logger.info(
+        { finalCount: articlesWithContent.length, targetCount: this.profile.maxArticlesPerRun },
+        '記事本文取得完了、最終選定'
+      );
+
+      if (articlesWithContent.length === 0) {
+        this.logger.warn('本文を取得できた記事がありません');
+        return { success: true, articleCount: 0 };
+      }
+
+      // 5. 台本生成
       const generator = new LLMScriptGenerator({
         provider: this.config.llm.provider,
         model: this.config.llm.model,
         apiKey: this.config.llm.apiKey ?? '',
       });
-      const script = await generator.generate(selectionResult.selected, this.profile);
+      const script = await generator.generateWithContent(articlesWithContent, this.profile);
       this.logger.info({ scriptId: script.id, title: script.title }, '台本を生成しました');
 
       // 台本をファイルに保存
       const scriptPath = await this.saveScript(script);
+
+      // 使用した記事のリストを作成（reasonsを引き継ぐ）
+      const finalArticles = articlesWithContent.map((a) => a as Article);
+      const finalReasons = new Map<string, string>();
+      for (const article of finalArticles) {
+        const reason = selectionResult.reasons.get(article.id);
+        if (reason) {
+          finalReasons.set(article.id, reason);
+        }
+      }
 
       // scriptOnlyモードの場合はここで終了
       if (scriptOnly) {
@@ -116,25 +156,25 @@ export class Pipeline {
           episodeId: script.id,
           episodeTitle: script.title,
           scriptPath,
-          articleCount: selectionResult.selected.length,
+          articleCount: finalArticles.length,
         };
       }
 
-      // 5. 音声生成
+      // 6. 音声生成
       const audioPath = await this.generateAudio(script);
       this.logger.info({ path: audioPath }, '音声を生成しました');
 
-      // 6. エピソード公開
+      // 7. エピソード公開
       const duration = await getAudioDuration(audioPath);
       const episode: Episode = {
         id: script.id,
         title: script.title,
-        description: this.generateDescription(selectionResult.selected, selectionResult.reasons),
+        description: this.generateDescription(finalArticles, finalReasons),
         audioPath,
         duration,
         publishedAt: new Date(),
         script: script.content,
-        articles: selectionResult.selected.map((a) => ({
+        articles: finalArticles.map((a) => ({
           title: a.title,
           url: a.url,
           source: a.sourceName ?? a.source,
@@ -144,8 +184,8 @@ export class Pipeline {
       await this.feedPublisher.publish(episode);
       this.logger.info({ episodeId: episode.id }, 'エピソードを公開しました');
 
-      // 7. 処理済み記事をマーク
-      for (const article of selectionResult.selected) {
+      // 8. 処理済み記事をマーク
+      for (const article of finalArticles) {
         await this.storage.markAsProcessed(article, episode.id);
       }
 
@@ -154,7 +194,7 @@ export class Pipeline {
         episodeId: episode.id,
         episodeTitle: episode.title,
         scriptPath,
-        articleCount: selectionResult.selected.length,
+        articleCount: finalArticles.length,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -165,6 +205,99 @@ export class Pipeline {
         error: message,
       };
     }
+  }
+
+  /**
+   * 記事本文を取得し、成功した記事から目標数を優先度順に採用
+   * 失敗した記事は記録して次回以降の選定から除外
+   */
+  private async fetchArticleContentsWithFallback(
+    articles: Article[],
+    priorities: Map<string, number>,
+    targetCount: number
+  ): Promise<ArticleWithContent[]> {
+    this.logger.info({ count: articles.length }, '記事本文を取得中...');
+
+    const results: ArticleWithContent[] = [];
+    const failedUrls: { url: string; error: string }[] = [];
+
+    // 優先度順にソート済みの記事を並列で取得（3件ずつ）
+    for (let i = 0; i < articles.length; i += 3) {
+      const batch = articles.slice(i, i + 3);
+      const batchResults = await Promise.all(
+        batch.map(async (article) => {
+          try {
+            const fetched = await fetchArticleContent(article.url);
+            if (fetched?.textContent) {
+              return {
+                article,
+                content: truncateContent(fetched.textContent, 5000),
+                success: true,
+              };
+            } else {
+              return {
+                article,
+                content: null,
+                success: false,
+                error: '本文を抽出できませんでした',
+              };
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            return {
+              article,
+              content: null,
+              success: false,
+              error: message,
+            };
+          }
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result.success && result.content) {
+          results.push({
+            ...result.article,
+            fetchedContent: result.content,
+          });
+        } else {
+          failedUrls.push({
+            url: result.article.url,
+            error: result.error ?? '不明なエラー',
+          });
+          this.logger.warn(
+            { url: result.article.url, error: result.error },
+            '記事本文の取得に失敗'
+          );
+        }
+      }
+
+      // 既に目標数に達していれば終了
+      if (results.length >= targetCount) {
+        this.logger.debug(
+          { fetched: results.length, target: targetCount },
+          '目標数に達したため残りの記事取得をスキップ'
+        );
+        break;
+      }
+    }
+
+    // 失敗URLを記録（次回以降の選定から除外するため）
+    for (const { url, error } of failedUrls) {
+      await this.storage.markUrlAsFailed(url, error);
+    }
+
+    this.logger.info(
+      {
+        total: articles.length,
+        success: results.length,
+        failed: failedUrls.length,
+      },
+      '記事本文の取得完了'
+    );
+
+    // 目標数に制限して返す
+    return results.slice(0, targetCount);
   }
 
   private async collectArticles(): Promise<Article[]> {

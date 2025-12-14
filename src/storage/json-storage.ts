@@ -10,8 +10,16 @@ export interface ProcessedArticle {
   episodeId?: string;
 }
 
+export interface FailedUrl {
+  url: string;
+  error: string;
+  failedAt: string;
+  failureCount: number;
+}
+
 export interface StorageData {
   processedArticles: ProcessedArticle[];
+  failedUrls: FailedUrl[];
 }
 
 export class JsonStorage {
@@ -21,18 +29,23 @@ export class JsonStorage {
 
   constructor(dataDir: string) {
     this.filePath = path.join(dataDir, 'processed.json');
-    this.data = { processedArticles: [] };
+    this.data = { processedArticles: [], failedUrls: [] };
   }
 
   async load(): Promise<void> {
     try {
       const content = await fs.readFile(this.filePath, 'utf-8');
-      this.data = JSON.parse(content) as StorageData;
+      const parsed = JSON.parse(content) as Partial<StorageData>;
+      // 古いデータ形式との互換性を保つ
+      this.data = {
+        processedArticles: parsed.processedArticles ?? [],
+        failedUrls: parsed.failedUrls ?? [],
+      };
       this.logger.debug({ count: this.data.processedArticles.length }, '処理済み記事データを読み込み');
     } catch (error) {
       // ファイルが存在しない場合は空のデータで初期化
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.data = { processedArticles: [] };
+        this.data = { processedArticles: [], failedUrls: [] };
         this.logger.debug('処理済み記事データファイルが存在しないため、新規作成');
       } else {
         throw error;
@@ -91,6 +104,69 @@ export class JsonStorage {
     if (removed > 0) {
       await this.save();
       this.logger.info({ removed, retentionDays }, '古い処理済み記事を削除');
+    }
+
+    return removed;
+  }
+
+  // URLを失敗としてマーク
+  async markUrlAsFailed(url: string, error: string): Promise<void> {
+    const existing = this.data.failedUrls.find((f) => f.url === url);
+
+    if (existing) {
+      // 既存のエントリを更新
+      existing.error = error;
+      existing.failedAt = new Date().toISOString();
+      existing.failureCount += 1;
+    } else {
+      // 新規追加
+      this.data.failedUrls.push({
+        url,
+        error,
+        failedAt: new Date().toISOString(),
+        failureCount: 1,
+      });
+    }
+
+    await this.save();
+    this.logger.debug({ url, error }, 'URLを失敗としてマーク');
+  }
+
+  // URLが失敗リストに含まれているか確認（保持期間内のみ）
+  isUrlFailed(url: string, retentionDays: number = 7): boolean {
+    const entry = this.data.failedUrls.find((f) => f.url === url);
+    if (!entry) {
+      return false;
+    }
+
+    // 保持期間を過ぎていれば再試行可能
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    const failedAt = new Date(entry.failedAt);
+
+    return failedAt >= cutoffDate;
+  }
+
+  // 失敗URLリストを取得
+  getFailedUrls(): FailedUrl[] {
+    return this.data.failedUrls;
+  }
+
+  // 古い失敗URLをクリーンアップ
+  async cleanupFailedUrls(retentionDays: number = 7): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+    const before = this.data.failedUrls.length;
+    this.data.failedUrls = this.data.failedUrls.filter((f) => {
+      const failedAt = new Date(f.failedAt);
+      return failedAt >= cutoffDate;
+    });
+    const removed = before - this.data.failedUrls.length;
+
+    if (removed > 0) {
+      await this.save();
+      this.logger.info({ removed, retentionDays }, '古い失敗URLを削除');
     }
 
     return removed;
