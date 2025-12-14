@@ -186,16 +186,26 @@ ${articlesList}
     try {
       const parsed = JSON.parse(jsonStr) as SelectionResponse;
       const articleMap = new Map(articles.map((a) => [a.id, a]));
+      // リスト番号からIDへのマッピングも作成（LLMが番号を返す場合のフォールバック用）
+      const indexMap = new Map(articles.map((a, i) => [(i + 1).toString(), a]));
       const selected: Article[] = [];
       const reasons = new Map<string, string>();
       const priorities = new Map<string, number>();
 
       for (const item of parsed.selectedArticles) {
-        const article = articleMap.get(item.id);
+        // まずIDで検索、見つからなければリスト番号として解釈
+        let article = articleMap.get(item.id);
+        if (!article) {
+          article = indexMap.get(item.id);
+          if (article) {
+            this.logger.debug({ inputId: item.id, actualId: article.id }, 'リスト番号をIDに変換');
+          }
+        }
+
         if (article) {
           selected.push(article);
-          reasons.set(item.id, item.reason);
-          priorities.set(item.id, item.priority ?? selected.length); // 優先度がない場合は順番を使用
+          reasons.set(article.id, item.reason);
+          priorities.set(article.id, item.priority ?? selected.length);
         } else {
           this.logger.warn({ id: item.id }, '選定された記事IDが見つかりません');
         }
