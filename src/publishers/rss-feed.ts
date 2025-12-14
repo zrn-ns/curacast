@@ -177,6 +177,13 @@ export class RSSFeedPublisher implements Publisher {
     return this.feed.xml({ indent: true });
   }
 
+  // フィードをクリア（全エピソードを削除）
+  async clearFeed(): Promise<void> {
+    this.feed = this.createFeed();
+    await this.saveFeed();
+    this.logger.info('RSSフィードをクリアしました');
+  }
+
   private async saveFeed(): Promise<void> {
     const feedXml = this.getFeed();
     const outputDir = path.dirname(this.config.outputPath);

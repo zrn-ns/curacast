@@ -435,4 +435,62 @@ export class Pipeline {
   getFeedPublisher(): RSSFeedPublisher {
     return this.feedPublisher;
   }
+
+  getStorage(): JsonStorage {
+    return this.storage;
+  }
+
+  // 全エピソードを削除（音声ファイル、台本、フィードをクリア）
+  async clearAllEpisodes(): Promise<{ audioFiles: number; scriptFiles: number }> {
+    let audioFiles = 0;
+    let scriptFiles = 0;
+
+    // 音声ファイルを削除
+    try {
+      const audioDir = this.config.output.audioDir;
+      const files = await fs.readdir(audioDir);
+      for (const file of files) {
+        if (file.endsWith('.mp3')) {
+          await fs.unlink(path.join(audioDir, file));
+          audioFiles++;
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // 台本ファイルを削除
+    try {
+      const scriptsDir = this.config.output.scriptsDir;
+      const files = await fs.readdir(scriptsDir);
+      for (const file of files) {
+        if (file.endsWith('.txt')) {
+          await fs.unlink(path.join(scriptsDir, file));
+          scriptFiles++;
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // RSSフィードをクリア
+    await this.feedPublisher.clearFeed();
+
+    this.logger.info({ audioFiles, scriptFiles }, '全エピソードを削除しました');
+    return { audioFiles, scriptFiles };
+  }
+
+  // ピックアップ済み記事をクリア
+  async clearProcessedArticles(): Promise<number> {
+    return await this.storage.clearProcessedArticles();
+  }
+
+  // 失敗URLをクリア
+  async clearFailedUrls(): Promise<number> {
+    return await this.storage.clearFailedUrls();
+  }
 }

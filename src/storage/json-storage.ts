@@ -171,4 +171,32 @@ export class JsonStorage {
 
     return removed;
   }
+
+  // 処理済み記事を全てクリア
+  async clearProcessedArticles(): Promise<number> {
+    const count = this.data.processedArticles.length;
+    this.data.processedArticles = [];
+    await this.save();
+    this.logger.info({ cleared: count }, '処理済み記事を全てクリア');
+    return count;
+  }
+
+  // 失敗URLを全てクリア
+  async clearFailedUrls(): Promise<number> {
+    const count = this.data.failedUrls.length;
+    this.data.failedUrls = [];
+    await this.save();
+    this.logger.info({ cleared: count }, '失敗URLを全てクリア');
+    return count;
+  }
+
+  // 全データをクリア
+  async clearAll(): Promise<{ processedArticles: number; failedUrls: number }> {
+    const processedCount = this.data.processedArticles.length;
+    const failedCount = this.data.failedUrls.length;
+    this.data = { processedArticles: [], failedUrls: [] };
+    await this.save();
+    this.logger.info({ processedArticles: processedCount, failedUrls: failedCount }, '全データをクリア');
+    return { processedArticles: processedCount, failedUrls: failedCount };
+  }
 }

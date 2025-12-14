@@ -98,6 +98,82 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // データ統計エンドポイント
+  app.get('/stats', async (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      const storage = config.pipeline.getStorage();
+      res.json({
+        processedArticles: storage.getProcessedCount(),
+        failedUrls: storage.getFailedUrls().length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // 全エピソード削除エンドポイント
+  app.post('/clear/episodes', async (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      logger.info('全エピソードの削除を開始');
+      const result = await config.pipeline.clearAllEpisodes();
+      logger.info(result, '全エピソードを削除しました');
+      res.json({ success: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, 'エピソード削除エラー');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // ピックアップ済み記事クリアエンドポイント
+  app.post('/clear/processed', async (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      logger.info('ピックアップ済み記事のクリアを開始');
+      const cleared = await config.pipeline.clearProcessedArticles();
+      logger.info({ cleared }, 'ピックアップ済み記事をクリアしました');
+      res.json({ success: true, cleared });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, 'ピックアップ済み記事クリアエラー');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // 失敗URLクリアエンドポイント
+  app.post('/clear/failed', async (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      logger.info('失敗URLのクリアを開始');
+      const cleared = await config.pipeline.clearFailedUrls();
+      logger.info({ cleared }, '失敗URLをクリアしました');
+      res.json({ success: true, cleared });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, '失敗URLクリアエラー');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   return app;
 }
 
@@ -181,6 +257,24 @@ function getDashboardHtml(canGenerate: boolean): string {
     }
     button:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(212, 165, 116, 0.4); }
     button:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+    button.danger {
+      background: linear-gradient(135deg, #e57373 0%, #d32f2f 100%);
+      box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+    }
+    button.danger:hover { box-shadow: 0 6px 16px rgba(211, 47, 47, 0.4); }
+    .btn-group { display: flex; flex-direction: column; gap: 0.5rem; }
+    .btn-small {
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+    }
+    .stats { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .stat-item {
+      background: rgba(212, 165, 116, 0.1);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .stat-value { font-weight: bold; color: #8b5a2b; }
     .message {
       margin-top: 1rem;
       padding: 0.75rem;
@@ -220,6 +314,24 @@ function getDashboardHtml(canGenerate: boolean): string {
       <h2>エピソード生成</h2>
       <button id="generateBtn" onclick="generate()">🎬 今すぐ生成</button>
       <div class="message" id="message"></div>
+    </div>
+
+    <div class="card">
+      <h2>データ統計</h2>
+      <div class="stats">
+        <div class="stat-item">ピックアップ済み記事: <span class="stat-value" id="processedCount">-</span></div>
+        <div class="stat-item">失敗URL: <span class="stat-value" id="failedCount">-</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>データ管理</h2>
+      <div class="btn-group">
+        <button class="btn-small danger" onclick="clearData('episodes', '全エピソード')">🗑️ 全エピソードを削除</button>
+        <button class="btn-small danger" onclick="clearData('processed', 'ピックアップ済み記事')">🗑️ ピックアップ済み記事をクリア</button>
+        <button class="btn-small danger" onclick="clearData('failed', '失敗URL')">🗑️ 失敗URLをクリア</button>
+      </div>
+      <div class="message" id="clearMessage"></div>
     </div>
     ` : ''}
   </div>
@@ -270,8 +382,53 @@ function getDashboardHtml(canGenerate: boolean): string {
       checkStatus();
     }
 
+    async function loadStats() {
+      try {
+        const res = await fetch('/stats');
+        const data = await res.json();
+        document.getElementById('processedCount').textContent = data.processedArticles;
+        document.getElementById('failedCount').textContent = data.failedUrls;
+      } catch {
+        // エラーは無視
+      }
+    }
+
+    async function clearData(type, label) {
+      if (!confirm(label + 'を削除しますか？この操作は取り消せません。')) {
+        return;
+      }
+
+      const msg = document.getElementById('clearMessage');
+      msg.className = 'message';
+      msg.style.display = 'none';
+
+      try {
+        const res = await fetch('/clear/' + type, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          let detail = '';
+          if (type === 'episodes') {
+            detail = '音声' + data.audioFiles + '件、台本' + data.scriptFiles + '件';
+          } else {
+            detail = data.cleared + '件';
+          }
+          msg.textContent = '✅ ' + label + 'を削除しました (' + detail + ')';
+          msg.className = 'message success';
+          loadStats();
+        } else {
+          msg.textContent = '❌ エラー: ' + data.error;
+          msg.className = 'message error';
+        }
+      } catch (e) {
+        msg.textContent = '❌ 通信エラー';
+        msg.className = 'message error';
+      }
+    }
+
     checkStatus();
+    loadStats();
     setInterval(checkStatus, 5000);
+    setInterval(loadStats, 10000);
   </script>
 </body>
 </html>`;
