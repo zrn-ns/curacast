@@ -393,7 +393,7 @@ export class Pipeline {
     await fs.writeFile(tempMp3Path, combinedBuffer);
 
     // アートワークを埋め込み
-    const artworkPath = path.resolve('./public/images/podcast-cover.png');
+    const artworkPath = path.resolve('./public/images/podcast-cover.jpg');
     try {
       await fs.access(artworkPath);
       await embedArtwork(tempMp3Path, artworkPath, outputPath, {

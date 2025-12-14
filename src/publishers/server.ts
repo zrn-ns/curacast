@@ -186,7 +186,7 @@ function getDashboardHtml(canGenerate: boolean): string {
   <meta name="theme-color" content="#d4a574">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="apple-touch-icon" href="/images/podcast-cover.png">
+  <link rel="apple-touch-icon" href="/images/podcast-cover.jpg">
   <title>CuraCast Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -288,7 +288,7 @@ function getDashboardHtml(canGenerate: boolean): string {
 <body>
   <div class="container">
     <div class="header">
-      <img src="/images/podcast-cover.png" alt="CuraCast" class="cover-image" onerror="this.style.display='none'">
+      <img src="/images/podcast-cover.jpg" alt="CuraCast" class="cover-image" onerror="this.style.display='none'">
       <h1>CuraCast</h1>
       <p class="tagline">あなたに寄り添うニュースキュレーション</p>
     </div>
