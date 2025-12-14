@@ -1,6 +1,7 @@
 import RSS from 'rss';
 import fs from 'fs/promises';
 import path from 'path';
+import { XMLParser } from 'fast-xml-parser';
 import type { Publisher, Episode } from './index.js';
 import { formatDuration } from '../utils/audio.js';
 import { getLogger } from '../utils/logger.js';
@@ -25,6 +26,77 @@ export class RSSFeedPublisher implements Publisher {
   constructor(config: RSSFeedConfig) {
     this.config = config;
     this.feed = this.createFeed();
+  }
+
+  /**
+   * 既存のfeed.xmlを読み込んでエピソードを復元する
+   */
+  async loadExistingFeed(): Promise<void> {
+    try {
+      const feedPath = this.config.outputPath;
+      const feedContent = await fs.readFile(feedPath, 'utf-8');
+
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+      });
+      const parsed = parser.parse(feedContent);
+
+      const channel = parsed?.rss?.channel;
+      if (!channel) {
+        this.logger.debug('既存フィードにchannelが見つかりません');
+        return;
+      }
+
+      // itemが配列でない場合（1件のみ）は配列に変換
+      const items = channel.item
+        ? Array.isArray(channel.item)
+          ? channel.item
+          : [channel.item]
+        : [];
+
+      this.logger.info({ count: items.length }, '既存フィードからエピソードを復元中');
+
+      for (const item of items) {
+        this.feed.item({
+          title: item.title ?? '',
+          description: item.description ?? '',
+          url: item.link ?? '',
+          guid: item.guid?.['#text'] ?? item.guid ?? '',
+          date: item.pubDate ? new Date(item.pubDate) : new Date(),
+          enclosure: item.enclosure
+            ? {
+                url: item.enclosure['@_url'] ?? '',
+                type: item.enclosure['@_type'] ?? 'audio/mpeg',
+              }
+            : undefined,
+          custom_elements: [
+            item['itunes:image']
+              ? {
+                  'itunes:image': {
+                    _attr: { href: item['itunes:image']['@_href'] ?? '' },
+                  },
+                }
+              : null,
+            item['itunes:duration']
+              ? { 'itunes:duration': item['itunes:duration'] }
+              : null,
+            { 'itunes:explicit': 'no' },
+            item['content:encoded']
+              ? { 'content:encoded': { _cdata: item['content:encoded'] } }
+              : null,
+          ].filter(Boolean),
+        });
+      }
+
+      this.logger.info({ count: items.length }, '既存エピソードの復元完了');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.logger.debug('既存のfeed.xmlが見つかりません。新規作成します');
+      } else {
+        this.logger.warn({ error }, '既存フィードの読み込みに失敗しました');
+      }
+    }
   }
 
   private createFeed(): RSS {

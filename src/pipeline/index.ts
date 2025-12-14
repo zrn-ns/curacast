@@ -52,6 +52,9 @@ export class Pipeline {
     await fs.mkdir(this.config.output.audioDir, { recursive: true });
     await fs.mkdir(this.config.output.dataDir, { recursive: true });
 
+    // 既存のフィードを読み込む
+    await this.feedPublisher.loadExistingFeed();
+
     this.logger.info('パイプラインを初期化しました');
   }
 
