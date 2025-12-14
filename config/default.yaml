@@ -58,19 +58,7 @@ tts:
   chunkSize: 1500
   concurrency: 6
   # 話者の声のトーン設定
-  # 温かみがあり親しみやすいトーンで、リスナーに寄り添うような話し方
-  speakerPrompt: |
-    Speak as a friendly and warm podcast host.
-    Use a gentle, calm, and approachable tone like a kind friend sharing interesting news over coffee.
-    Voice characteristics:
-    - Warm and soft, but clear and articulate
-    - Relaxed pace, never rushed, with natural pauses
-    - Conversational and friendly, not formal or stiff
-    - Slightly cheerful but not overly energetic
-    - Trustworthy and intelligent, like a knowledgeable companion
-    - Empathetic and caring, making listeners feel at ease
-
-    Read the following text naturally:
+  speakerPrompt: "あなたは親しみやすく温かいポッドキャストホストです。コーヒーを飲みながら友人に興味深いニュースを共有するような、穏やかで落ち着いた口調で話してください。急がず、自然な間を取りながら、リスナーに寄り添うように読んでください:"
 
 # サーバー設定
 server:
