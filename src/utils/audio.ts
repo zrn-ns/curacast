@@ -127,7 +127,7 @@ export async function embedArtwork(
       .outputOption('-map', '0:a')
       .outputOption('-map', '1:v')
       .outputOption('-c:a', 'copy')
-      .outputOption('-c:v', 'png')
+      .outputOption('-c:v', 'mjpeg')
       .outputOption('-id3v2_version', '3')
       .outputOption('-metadata:s:v', 'title=Album cover')
       .outputOption('-metadata:s:v', 'comment=Cover (front)');
