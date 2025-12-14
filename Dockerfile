@@ -38,8 +38,13 @@ COPY --from=builder /app/dist ./dist
 # 設定ファイルをコピー
 COPY config ./config
 
-# データディレクトリを作成
+# データディレクトリとサンプルファイルをコピー
 RUN mkdir -p data output/scripts output/audio
+COPY data/profile.example.yaml ./data/
+
+# エントリーポイントスクリプトをコピー
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 環境変数のデフォルト値
 ENV NODE_ENV=production
@@ -54,4 +59,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
 # 実行
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
