@@ -65,6 +65,7 @@ async function main(): Promise<void> {
     port: config.server.port,
     audioDir: config.output.audioDir,
     feedPublisher: pipeline.getFeedPublisher(),
+    pipeline,
   });
   await startServer(app, config.server.port);
 
