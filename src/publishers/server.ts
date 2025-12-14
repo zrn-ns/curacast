@@ -107,49 +107,68 @@ function getDashboardHtml(canGenerate: boolean): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#d4a574">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/images/podcast-cover.png">
   <title>CuraCast Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
+      background: linear-gradient(135deg, #fef9f3 0%, #f5ebe0 100%);
+      color: #5c4033;
       min-height: 100vh;
       padding: 2rem;
     }
     .container { max-width: 600px; margin: 0 auto; }
-    h1 {
-      font-size: 2rem;
+    .header {
+      text-align: center;
       margin-bottom: 2rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+    }
+    .cover-image {
+      width: 200px;
+      height: 200px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(92, 64, 51, 0.2);
+      margin-bottom: 1rem;
+      object-fit: cover;
+    }
+    h1 {
+      font-size: 1.8rem;
+      color: #8b5a2b;
+      margin-bottom: 0.5rem;
+    }
+    .tagline {
+      color: #a08060;
+      font-size: 0.95rem;
     }
     .card {
-      background: #16213e;
+      background: rgba(255, 255, 255, 0.8);
       border-radius: 12px;
       padding: 1.5rem;
       margin-bottom: 1rem;
+      box-shadow: 0 2px 12px rgba(92, 64, 51, 0.08);
     }
-    .card h2 { font-size: 1rem; color: #888; margin-bottom: 0.5rem; }
+    .card h2 { font-size: 0.9rem; color: #a08060; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
     .status { display: flex; align-items: center; gap: 0.5rem; }
     .status-dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: #4ade80;
+      background: #7cb342;
     }
-    .status-dot.generating { background: #facc15; animation: pulse 1s infinite; }
+    .status-dot.generating { background: #d4a574; animation: pulse 1s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     .links { display: flex; flex-direction: column; gap: 0.75rem; }
     .links a {
-      color: #60a5fa;
+      color: #8b5a2b;
       text-decoration: none;
       font-size: 1.1rem;
     }
     .links a:hover { text-decoration: underline; }
     button {
-      background: #3b82f6;
+      background: linear-gradient(135deg, #d4a574 0%, #c4956a 100%);
       color: white;
       border: none;
       padding: 0.75rem 1.5rem;
@@ -157,23 +176,28 @@ function getDashboardHtml(canGenerate: boolean): string {
       font-size: 1rem;
       cursor: pointer;
       width: 100%;
-      transition: background 0.2s;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 12px rgba(212, 165, 116, 0.3);
     }
-    button:hover { background: #2563eb; }
-    button:disabled { background: #555; cursor: not-allowed; }
+    button:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(212, 165, 116, 0.4); }
+    button:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
     .message {
       margin-top: 1rem;
       padding: 0.75rem;
       border-radius: 8px;
       display: none;
     }
-    .message.success { background: #166534; display: block; }
-    .message.error { background: #991b1b; display: block; }
+    .message.success { background: #d4edda; color: #155724; display: block; }
+    .message.error { background: #f8d7da; color: #721c24; display: block; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🎙️ CuraCast</h1>
+    <div class="header">
+      <img src="/images/podcast-cover.png" alt="CuraCast" class="cover-image" onerror="this.style.display='none'">
+      <h1>CuraCast</h1>
+      <p class="tagline">あなたに寄り添うニュースキュレーション</p>
+    </div>
 
     <div class="card">
       <h2>ステータス</h2>
