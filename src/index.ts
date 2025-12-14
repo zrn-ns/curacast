@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import fs from 'fs/promises';
+import path from 'path';
 import { loadConfig, loadProfile } from './config/index.js';
 import { Pipeline } from './pipeline/index.js';
 import { Scheduler } from './pipeline/scheduler.js';
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
   const app = createServer({
     port: config.server.port,
     audioDir: config.output.audioDir,
-    imagesDir: './public/images',
+    imagesDir: path.join(config.output.audioDir, 'images'),
     feedPublisher: pipeline.getFeedPublisher(),
     pipeline,
   });
