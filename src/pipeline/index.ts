@@ -130,6 +130,7 @@ export class Pipeline {
         audioPath,
         duration,
         publishedAt: new Date(),
+        script: script.content,
         articles: selectionResult.selected.map((a) => ({
           title: a.title,
           url: a.url,

@@ -6,6 +6,7 @@ export interface Episode {
   audioPath: string;
   duration: number; // 秒
   publishedAt: Date;
+  script?: string; // 台本
   articles?: {
     title: string;
     url: string;

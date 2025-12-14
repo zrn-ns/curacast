@@ -39,6 +39,7 @@ export class RSSFeedPublisher implements Publisher {
       pubDate: new Date(),
       custom_namespaces: {
         itunes: 'http://www.itunes.com/dtds/podcast-1.0.dtd',
+        content: 'http://purl.org/rss/1.0/modules/content/',
       },
       custom_elements: [
         {
@@ -67,6 +68,9 @@ export class RSSFeedPublisher implements Publisher {
     const audioFileName = path.basename(episode.audioPath);
     const durationStr = formatDuration(episode.duration);
 
+    // content:encoded用のHTMLコンテンツを生成
+    const contentHtml = this.generateContentHtml(episode);
+
     this.feed.item({
       title: episode.title,
       description: episode.description,
@@ -87,6 +91,7 @@ export class RSSFeedPublisher implements Publisher {
         },
         { 'itunes:duration': durationStr },
         { 'itunes:explicit': 'no' },
+        { 'content:encoded': { _cdata: contentHtml } },
       ],
     });
 
@@ -109,6 +114,37 @@ export class RSSFeedPublisher implements Publisher {
 
     await fs.writeFile(this.config.outputPath, feedXml, 'utf-8');
     this.logger.debug({ path: this.config.outputPath }, 'RSSフィードを保存');
+  }
+
+  private generateContentHtml(episode: Episode): string {
+    const parts: string[] = [];
+
+    // 紹介記事セクション
+    if (episode.articles && episode.articles.length > 0) {
+      parts.push('<h2>紹介した記事</h2>');
+      parts.push('<ul>');
+      for (const article of episode.articles) {
+        parts.push(`<li><a href="${this.escapeHtml(article.url)}">${this.escapeHtml(article.title)}</a> (${this.escapeHtml(article.source)})</li>`);
+      }
+      parts.push('</ul>');
+    }
+
+    // 台本セクション
+    if (episode.script) {
+      parts.push('<h2>台本</h2>');
+      parts.push(`<pre>${this.escapeHtml(episode.script)}</pre>`);
+    }
+
+    return parts.join('\n');
+  }
+
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 }
 
