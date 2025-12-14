@@ -225,12 +225,12 @@ ${articlesSummary}
 以下のJSON形式で出力してください:
 \`\`\`json
 {
-  "title": "【日付】一言概要（例: 【12/14】React脆弱性とWebGPUの進化）",
+  "title": "【年/月/日】一言概要（例: 【2024/12/14】React脆弱性とWebGPUの進化）",
   "script": "台本の内容..."
 }
 \`\`\`
 
-titleは必ず【月/日】形式の日付で始め、その日のトピックを端的に表す一言概要を含めてください（30文字以内推奨）。`;
+titleは必ず【年/月/日】形式の日付で始め、その日のトピックを端的に表す一言概要を含めてください（30文字以内推奨）。`;
   }
 
   private async callLLM(prompt: string): Promise<string> {
@@ -308,14 +308,15 @@ titleは必ず【月/日】形式の日付で始め、その日のトピック�
   }
 
   private generateTitle(articles: Article[], date: Date): string {
+    const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
 
     if (articles.length === 1 && articles[0]) {
-      return `【${month}/${day}】${articles[0].title}`;
+      return `【${year}/${month}/${day}】${articles[0].title}`;
     }
 
-    return `【${month}/${day}】テック記事まとめ`;
+    return `【${year}/${month}/${day}】テック記事まとめ`;
   }
 
   private estimateDuration(content: string): number {
