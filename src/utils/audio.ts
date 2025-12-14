@@ -124,25 +124,23 @@ export async function embedArtwork(
     let command = ffmpeg()
       .input(mp3Path)
       .input(artworkPath)
-      .outputOptions([
-        '-map', '0:a',
-        '-map', '1:v',
-        '-c:a', 'copy',
-        '-c:v', 'png',
-        '-id3v2_version', '3',
-        '-metadata:s:v', 'title=Album cover',
-        '-metadata:s:v', 'comment=Cover (front)',
-      ]);
+      .outputOption('-map', '0:a')
+      .outputOption('-map', '1:v')
+      .outputOption('-c:a', 'copy')
+      .outputOption('-c:v', 'png')
+      .outputOption('-id3v2_version', '3')
+      .outputOption('-metadata:s:v', 'title=Album cover')
+      .outputOption('-metadata:s:v', 'comment=Cover (front)');
 
     // メタデータを追加
     if (metadata?.title) {
-      command = command.outputOptions(['-metadata', `title=${metadata.title}`]);
+      command = command.outputOption('-metadata', `title=${metadata.title}`);
     }
     if (metadata?.artist) {
-      command = command.outputOptions(['-metadata', `artist=${metadata.artist}`]);
+      command = command.outputOption('-metadata', `artist=${metadata.artist}`);
     }
     if (metadata?.album) {
-      command = command.outputOptions(['-metadata', `album=${metadata.album}`]);
+      command = command.outputOption('-metadata', `album=${metadata.album}`);
     }
 
     command

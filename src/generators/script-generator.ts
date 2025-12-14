@@ -51,7 +51,8 @@ export class LLMScriptGenerator implements ScriptGenerator {
     this.logger.debug({ articleCount: articlesWithContent.length, promptLength: prompt.length }, 'LLMによる台本生成を開始');
 
     try {
-      const rawScript = await this.callLLM(prompt);
+      const rawResponse = await this.callLLM(prompt);
+      const { title: generatedTitle, script: rawScript } = this.parseScriptResponse(rawResponse);
       const scriptContent = this.cleanScript(rawScript);
       const today = new Date();
       const dateStr = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
@@ -59,7 +60,7 @@ export class LLMScriptGenerator implements ScriptGenerator {
 
       const script: Script = {
         id: `${dateStr}-${randomSuffix}`,
-        title: this.generateTitle(articlesWithContent, today),
+        title: generatedTitle || this.generateTitle(articlesWithContent, today),
         content: scriptContent,
         articles: articlesWithContent,
         generatedAt: today,
@@ -218,10 +219,18 @@ ${articlesSummary}
 
 ## 重要な注意
 - 「承知しました」「以下に台本を作成します」などの前置きは絶対に含めないでください
-- 台本の内容のみを出力してください。説明や注釈は不要です
 - 挨拶から始めて、締めの挨拶で終わってください
 
-台本を出力してください:`;
+## 出力
+以下のJSON形式で出力してください:
+\`\`\`json
+{
+  "title": "【日付】一言概要（例: 【12/14】React脆弱性とWebGPUの進化）",
+  "script": "台本の内容..."
+}
+\`\`\`
+
+titleは必ず【月/日】形式の日付で始め、その日のトピックを端的に表す一言概要を含めてください（30文字以内推奨）。`;
   }
 
   private async callLLM(prompt: string): Promise<string> {
@@ -279,14 +288,34 @@ ${articlesSummary}
     return content;
   }
 
-  private generateTitle(articles: Article[], date: Date): string {
-    const dateStr = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-
-    if (articles.length === 1 && articles[0]) {
-      return `${dateStr}の話題: ${articles[0].title}`;
+  private parseScriptResponse(response: string): { title: string; script: string } {
+    // JSONブロックを抽出
+    const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]) as { title?: string; script?: string };
+        if (parsed.title && parsed.script) {
+          return { title: parsed.title, script: parsed.script };
+        }
+      } catch (error) {
+        this.logger.warn({ error }, 'JSON形式の応答をパースできませんでした。フォールバックします');
+      }
     }
 
-    return `${dateStr}のテック記事まとめ`;
+    // JSONパースに失敗した場合は、応答全体を台本として扱う
+    this.logger.debug('JSON形式でない応答を受信。台本として処理します');
+    return { title: '', script: response };
+  }
+
+  private generateTitle(articles: Article[], date: Date): string {
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+
+    if (articles.length === 1 && articles[0]) {
+      return `【${month}/${day}】${articles[0].title}`;
+    }
+
+    return `【${month}/${day}】テック記事まとめ`;
   }
 
   private estimateDuration(content: string): number {
