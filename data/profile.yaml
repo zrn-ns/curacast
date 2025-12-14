@@ -1,5 +1,12 @@
 # ユーザー興味プロファイル
 
+# 語り部（ナレーター）設定
+narrator:
+  name: "ミサキ"
+  personality: "明るくて知的な女性。技術の話をわかりやすく噛み砕いて説明するのが得意。時々ユーモアを交える"
+  speechRate: "normal"  # 'slow', 'normal', 'fast'
+  catchphrase: "今日も一緒にテックの世界を探検しましょう！"
+
 # 興味のあるトピック（LLMが記事選定時に参照）
 interests:
   - "iOS/Swift開発"

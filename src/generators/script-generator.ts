@@ -97,6 +97,7 @@ export class LLMScriptGenerator implements ScriptGenerator {
 
   private buildPrompt(articles: ArticleWithContent[], profile: UserProfile): string {
     const style = profile.scriptStyle;
+    const narrator = profile.narrator;
     const customPrompt = profile.customPrompts?.scriptGeneration ?? '';
 
     const articlesSummary = articles
@@ -117,8 +118,17 @@ ${hasContent ? `【記事本文】\n${a.fetchedContent}` : `【概要のみ】\n
       news: '簡潔で、事実を中心とした報道調',
     }[style.tone];
 
+    const narratorSection = `## 語り部（パーソナリティ）
+- 名前: ${narrator?.name ?? 'ホスト'}
+- 性格: ${narrator?.personality ?? '親しみやすく、技術に詳しい'}
+${narrator?.catchphrase ? `- 口癖・決め台詞: 「${narrator.catchphrase}」（適宜使ってください）` : ''}
+
+この語り部のキャラクターになりきって台本を書いてください。名前は自己紹介で使ってください。`;
+
     return `あなたは技術系ポッドキャストの台本ライターです。
 以下の記事を元に、${style.maxDuration}分程度の深掘りポッドキャスト台本を作成してください。
+
+${narratorSection}
 
 ## トーン
 ${toneDescription}

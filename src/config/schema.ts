@@ -81,6 +81,14 @@ export const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+// 語り部パーソナリティ設定
+const narratorSchema = z.object({
+  name: z.string().default('ホスト'),
+  personality: z.string().default('親しみやすく、技術に詳しい'),
+  speechRate: z.enum(['slow', 'normal', 'fast']).default('normal'),
+  catchphrase: z.string().optional(),
+});
+
 // 台本スタイル設定
 const scriptStyleSchema = z.object({
   tone: z.enum(['casual', 'formal', 'news']).default('casual'),
@@ -103,6 +111,7 @@ export const profileSchema = z.object({
   excludeKeywords: z.array(z.string()).default([]),
   maxArticlesPerRun: z.number().default(5),
   preferredSources: z.array(z.string()).default([]),
+  narrator: narratorSchema.default({}),
   scriptStyle: scriptStyleSchema.default({}),
   customPrompts: customPromptsSchema.default({}),
 });
