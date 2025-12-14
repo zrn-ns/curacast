@@ -39,7 +39,8 @@ export class LLMScriptGenerator implements ScriptGenerator {
     this.logger.debug({ articleCount: articles.length, promptLength: prompt.length }, 'LLMによる台本生成を開始');
 
     try {
-      const scriptContent = await this.callLLM(prompt);
+      const rawScript = await this.callLLM(prompt);
+      const scriptContent = this.cleanScript(rawScript);
       const today = new Date();
       const dateStr = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
 
@@ -77,7 +78,7 @@ export class LLMScriptGenerator implements ScriptGenerator {
           return {
             ...article,
             fetchedContent: fetched?.textContent
-              ? truncateContent(fetched.textContent, 3000) // 各記事最大3000文字
+              ? truncateContent(fetched.textContent, 5000) // 各記事最大5000文字
               : undefined,
           };
         })
@@ -145,9 +146,15 @@ ${articlesSummary}
 ## 出力形式
 - 話し言葉で自然に聞こえるように書いてください
 - 専門用語には必ず簡単な説明を加えてください
-- マークダウン記法は使わず、プレーンテキストで出力してください
+- マークダウン記法（#, *, **など）は絶対に使わないでください。プレーンテキストのみで出力してください
 - 「では」「さて」「ところで」などの接続詞を適度に使って、話の流れを自然にしてください
 - 各記事の紹介の間には、自然な繋ぎの言葉を入れてください
+- 各記事について十分な時間をかけて深く掘り下げてください。急いで次の話題に移る必要はありません
+
+## 重要な注意
+- 「承知しました」「以下に台本を作成します」などの前置きは絶対に含めないでください
+- 台本の内容のみを出力してください。説明や注釈は不要です
+- 挨拶から始めて、締めの挨拶で終わってください
 
 台本を出力してください:`;
   }
@@ -218,5 +225,27 @@ ${articlesSummary}
     // 余裕を持って350文字/分で計算
     const charactersPerMinute = 350;
     return Math.ceil(content.length / charactersPerMinute);
+  }
+
+  private cleanScript(script: string): string {
+    let cleaned = script;
+
+    // LLMの前置き・後置きを除去
+    cleaned = cleaned.replace(/^(はい、|承知|以下に|了解).*?(。|：|:)\n*/i, '');
+    cleaned = cleaned.replace(/^---+\n*/gm, '');
+
+    // マークダウン記法を除去
+    cleaned = cleaned.replace(/^#{1,6}\s*/gm, ''); // 見出し
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1'); // 太字
+    cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1'); // 斜体
+    cleaned = cleaned.replace(/^[\*\-]\s+/gm, '・'); // リスト記号を「・」に変換
+    cleaned = cleaned.replace(/^\d+\.\s+/gm, ''); // 番号付きリスト
+    cleaned = cleaned.replace(/`([^`]+)`/g, '$1'); // インラインコード
+    cleaned = cleaned.replace(/```[\s\S]*?```/g, ''); // コードブロック
+
+    // 連続する空行を1つに
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+    return cleaned.trim();
   }
 }
