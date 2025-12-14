@@ -38,9 +38,12 @@ COPY --from=builder /app/dist ./dist
 # 設定ファイルをコピー
 COPY config ./config
 
-# データディレクトリとサンプルファイルをコピー
+# データディレクトリを作成
 RUN mkdir -p data output/scripts output/audio
-COPY data/profile.example.yaml ./data/
+
+# テンプレートファイルをコピー（ボリュームマウント時も参照できるよう別ディレクトリに配置）
+RUN mkdir -p templates
+COPY data/profile.example.yaml ./templates/
 
 # エントリーポイントスクリプトをコピー
 COPY docker-entrypoint.sh /usr/local/bin/
