@@ -88,7 +88,11 @@ const narratorSchema = z.object({
   name: z.string().default('ホスト'),
   personality: z.string().default('親しみやすく、技術に詳しい'),
   speechRate: z.enum(['slow', 'normal', 'fast']).default('normal'),
+  // 旧形式（後方互換性のため残す）
   catchphrase: z.string().optional(),
+  // 新形式（オープニング・エンディング別）
+  openingCatchphrase: z.string().optional(),
+  closingCatchphrase: z.string().optional(),
 });
 
 // 台本スタイル設定

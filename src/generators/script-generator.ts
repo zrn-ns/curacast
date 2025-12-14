@@ -131,12 +131,23 @@ ${hasContent ? `【記事本文】\n${a.fetchedContent}` : `【概要のみ】\n
       news: '簡潔で、事実を中心とした報道調',
     }[style.tone];
 
+    // キャッチフレーズの取得（新形式優先、旧形式にフォールバック）
+    const openingCatchphrase = narrator?.openingCatchphrase ?? narrator?.catchphrase;
+    const closingCatchphrase = narrator?.closingCatchphrase ?? narrator?.catchphrase;
+
+    const catchphraseSection = openingCatchphrase || closingCatchphrase
+      ? `- キャッチフレーズ:
+${openingCatchphrase ? `  - オープニング用: 「${openingCatchphrase}」` : ''}
+${closingCatchphrase ? `  - エンディング用: 「${closingCatchphrase}」` : ''}`
+      : '';
+
     const narratorSection = `## 語り部（パーソナリティ）
 - 名前: ${narrator?.name ?? 'ホスト'}
 - 性格: ${narrator?.personality ?? '親しみやすく、技術に詳しい'}
-${narrator?.catchphrase ? `- 口癖・決め台詞: 「${narrator.catchphrase}」（適宜使ってください）` : ''}
+${catchphraseSection}
 
-この語り部のキャラクターになりきって台本を書いてください。名前は自己紹介で使ってください。`;
+この語り部のキャラクターになりきって台本を書いてください。名前は自己紹介で使ってください。
+キャッチフレーズがある場合は、オープニングとエンディングでそれぞれ適切なものを使ってください。`;
 
     // 今日の日付を取得
     const today = new Date();

@@ -57,11 +57,11 @@ tts:
     - "Aoede"  # 日本語に適した女性の声
   chunkSize: 1500
   concurrency: 6
-  # 話者「ハルカ」のキャラクター設定
+  # 話者の声のトーン設定
   # 温かみがあり親しみやすいトーンで、リスナーに寄り添うような話し方
   speakerPrompt: |
-    You are Haruka, a friendly and warm podcast host.
-    Speak in a gentle, calm, and approachable tone like a kind friend sharing interesting news over coffee.
+    Speak as a friendly and warm podcast host.
+    Use a gentle, calm, and approachable tone like a kind friend sharing interesting news over coffee.
     Voice characteristics:
     - Warm and soft, but clear and articulate
     - Relaxed pace, never rushed, with natural pauses
