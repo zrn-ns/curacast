@@ -193,21 +193,14 @@ ${articlesList}
       const priorities = new Map<string, number>();
 
       for (const item of parsed.selectedArticles) {
-        // まずIDで検索、見つからなければリスト番号として解釈
-        let article = articleMap.get(item.id);
-        if (!article) {
-          article = indexMap.get(item.id);
-          if (article) {
-            this.logger.debug({ inputId: item.id, actualId: article.id }, 'リスト番号をIDに変換');
-          }
-        }
+        const article = this.findArticle(item.id, articleMap, indexMap, articles);
 
         if (article) {
           selected.push(article);
           reasons.set(article.id, item.reason);
           priorities.set(article.id, item.priority ?? selected.length);
         } else {
-          this.logger.warn({ id: item.id }, '選定された記事IDが見つかりません');
+          this.logger.warn({ id: item.id, availableIds: articles.slice(0, 5).map(a => a.id) }, '選定された記事IDが見つかりません');
         }
       }
 
@@ -220,5 +213,63 @@ ${articlesList}
       this.logger.error({ error: message, jsonStr }, 'LLM応答のパースに失敗');
       return { selected: [], reasons: new Map(), priorities: new Map() };
     }
+  }
+
+  /**
+   * LLMが返したIDから記事を検索する
+   * 複数のフォールバック戦略を使用
+   */
+  private findArticle(
+    inputId: string,
+    articleMap: Map<string, Article>,
+    indexMap: Map<string, Article>,
+    articles: Article[]
+  ): Article | undefined {
+    // IDを正規化（空白除去、小文字化）
+    const normalizedId = inputId.trim().toLowerCase();
+
+    // 1. 完全一致（元のID）
+    let article = articleMap.get(inputId);
+    if (article) return article;
+
+    // 2. 完全一致（トリムしたID）
+    article = articleMap.get(inputId.trim());
+    if (article) return article;
+
+    // 3. リスト番号として解釈（"1", "2", "3"...）
+    article = indexMap.get(normalizedId);
+    if (article) {
+      this.logger.debug({ inputId, actualId: article.id }, 'リスト番号をIDに変換');
+      return article;
+    }
+
+    // 4. "ID: xxx" 形式で返された場合
+    const idPrefixMatch = inputId.match(/^(?:ID:\s*)?(.+)$/i);
+    if (idPrefixMatch?.[1]) {
+      const extractedId = idPrefixMatch[1].trim();
+      article = articleMap.get(extractedId);
+      if (article) {
+        this.logger.debug({ inputId, actualId: article.id }, 'ID:プレフィックスを除去してマッチ');
+        return article;
+      }
+    }
+
+    // 5. 部分一致検索（IDの先頭部分が一致する記事を探す）
+    for (const a of articles) {
+      if (a.id.toLowerCase().startsWith(normalizedId) || normalizedId.startsWith(a.id.toLowerCase())) {
+        this.logger.debug({ inputId, actualId: a.id }, '部分一致でマッチ');
+        return a;
+      }
+    }
+
+    // 6. タイトルの一部がIDとして返された場合（最終手段）
+    for (const a of articles) {
+      if (a.title.includes(inputId) || inputId.includes(a.title.slice(0, 20))) {
+        this.logger.debug({ inputId, actualId: a.id, title: a.title }, 'タイトル部分一致でマッチ');
+        return a;
+      }
+    }
+
+    return undefined;
   }
 }
