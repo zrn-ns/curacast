@@ -43,9 +43,10 @@ export class LLMScriptGenerator implements ScriptGenerator {
       const scriptContent = this.cleanScript(rawScript);
       const today = new Date();
       const dateStr = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
+      const randomSuffix = generateArticleId(`${Date.now()}-${Math.random()}`);
 
       const script: Script = {
-        id: generateArticleId(`script-${dateStr}-${Date.now()}`),
+        id: `${dateStr}-${randomSuffix}`,
         title: this.generateTitle(articles, today),
         content: scriptContent,
         articles,
