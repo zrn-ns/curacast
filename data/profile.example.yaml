@@ -11,16 +11,14 @@ narrator:
 interests:
   # テック系
   - "iOS/Swift開発"
-  - "TypeScript/JavaScript"
   - "AI/機械学習"
-  - "クラウドインフラ（AWS, GCP）"
+  - "AI Coding（GitHub Copilot、Cursor、Claude Codeなど）"
   - "開発者体験（DX）"
   - "アーキテクチャ設計"
   - "オープンソース"
   # 経済・ビジネス
   - "投資・株"
   - "暗号通貨"
-  - "スタートアップ"
   # 時事ネタ
   - "国内ニュース"
   - "国際情勢"
@@ -40,7 +38,7 @@ excludeKeywords:
   - "プロモーション"
 
 # 1回の実行で選定する最大記事数
-maxArticlesPerRun: 5
+maxArticlesPerRun: 8
 
 # 優先ソース（同スコアの場合こちらを優先）
 preferredSources:
@@ -60,7 +58,7 @@ customPrompts:
   # 記事選定時に追加するプロンプト
   selection: |
     時事ネタ（ニュース系）とテック記事をバランスよく選んでください。
-    時事ネタは2-3件、テック記事は2-3件程度が理想です。
+    時事ネタは2-3件、テック記事は4-5件程度が理想です。
 
     【ニュース選定の注意点】
     以下のようなニュースを優先してください：
