@@ -108,7 +108,70 @@ export function formatDuration(seconds: number): string {
   return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// 複数の音声バッファを結合
+// 複数の音声バッファを結合（単純連結、メタデータは更新されない）
 export function concatAudioBuffers(buffers: Buffer[]): Buffer {
   return Buffer.concat(buffers);
+}
+
+// 複数のMP3バッファをffmpegで正しく結合
+export async function concatMp3Buffers(buffers: Buffer[], tempDir: string): Promise<Buffer> {
+  if (buffers.length === 0) {
+    return Buffer.alloc(0);
+  }
+  if (buffers.length === 1 && buffers[0]) {
+    return buffers[0];
+  }
+
+  const timestamp = Date.now();
+  const tempFiles: string[] = [];
+
+  try {
+    // ディレクトリが存在しない場合は作成
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // 各バッファを一時ファイルとして保存
+    for (let i = 0; i < buffers.length; i++) {
+      const buffer = buffers[i];
+      if (!buffer) continue;
+      const tempPath = path.join(tempDir, `chunk_${timestamp}_${i}.mp3`);
+      await fs.writeFile(tempPath, buffer);
+      tempFiles.push(tempPath);
+    }
+
+    // 連結リストファイルを作成
+    const listPath = path.join(tempDir, `concat_${timestamp}.txt`);
+    const listContent = tempFiles.map((f) => `file '${f}'`).join('\n');
+    await fs.writeFile(listPath, listContent);
+
+    // 出力ファイルパス
+    const outputPath = path.join(tempDir, `output_${timestamp}.mp3`);
+
+    // ffmpegで結合
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg()
+        .input(listPath)
+        .inputOptions(['-f', 'concat', '-safe', '0'])
+        .audioCodec('copy')
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err))
+        .save(outputPath);
+    });
+
+    // 結合したファイルを読み込み
+    const result = await fs.readFile(outputPath);
+
+    // 出力ファイルも削除対象に追加
+    tempFiles.push(listPath, outputPath);
+
+    return result;
+  } finally {
+    // 一時ファイルを削除
+    for (const tempFile of tempFiles) {
+      try {
+        await fs.unlink(tempFile);
+      } catch {
+        // 削除エラーは無視
+      }
+    }
+  }
 }

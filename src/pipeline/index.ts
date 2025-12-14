@@ -11,7 +11,7 @@ import { createRSSFeedPublisher, type RSSFeedPublisher } from '../publishers/rss
 import type { Episode } from '../publishers/index.js';
 import { JsonStorage } from '../storage/json-storage.js';
 import { splitText } from '../utils/text.js';
-import { getAudioDuration, concatAudioBuffers } from '../utils/audio.js';
+import { getAudioDuration, concatMp3Buffers } from '../utils/audio.js';
 import { getLogger } from '../utils/logger.js';
 import { fetchArticleContent, truncateContent } from '../utils/article-fetcher.js';
 
@@ -377,8 +377,12 @@ export class Pipeline {
       );
     }
 
-    // 音声を結合
-    const combinedBuffer = concatAudioBuffers(audioBuffers.filter((b): b is Buffer => b !== undefined));
+    // 音声を結合（ffmpegを使用してメタデータも正しく設定）
+    const tempDir = path.join(this.config.output.audioDir, '.temp');
+    const combinedBuffer = await concatMp3Buffers(
+      audioBuffers.filter((b): b is Buffer => b !== undefined),
+      tempDir
+    );
 
     // ファイルに保存
     const fileName = `${script.id}.mp3`;
