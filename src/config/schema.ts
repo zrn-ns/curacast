@@ -36,7 +36,7 @@ const llmSchema = z.object({
 // TTS設定
 const ttsSchema = z.object({
   provider: z.enum(['gemini', 'openai']).default('gemini'),
-  model: z.string().default('gemini-2.5-pro-preview-tts'),
+  model: z.string().default('gemini-2.5-flash-preview-tts'),
   voices: z.array(z.string()).default(['Laomedeia']),
   chunkSize: z.number().default(1500),
   concurrency: z.number().default(6),
