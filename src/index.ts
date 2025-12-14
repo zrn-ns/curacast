@@ -1,9 +1,19 @@
 import 'dotenv/config';
+import fs from 'fs/promises';
 import { loadConfig, loadProfile } from './config/index.js';
 import { Pipeline } from './pipeline/index.js';
 import { Scheduler } from './pipeline/scheduler.js';
 import { createServer, startServer } from './publishers/server.js';
 import { createLogger, getLogger } from './utils/logger.js';
+
+async function hasExistingEpisodes(audioDir: string): Promise<boolean> {
+  try {
+    const files = await fs.readdir(audioDir);
+    return files.some((file) => file.endsWith('.mp3'));
+  } catch {
+    return false;
+  }
+}
 
 async function main(): Promise<void> {
   // コマンドライン引数を解析
@@ -68,9 +78,16 @@ async function main(): Promise<void> {
     });
     scheduler.start();
 
-    // 起動時に1回実行するオプション
-    if (args.includes('--run-now')) {
-      logger.info('起動時に即座に実行します');
+    // 起動時に1回実行するオプション、またはエピソードがない場合は自動実行
+    const shouldRunNow = args.includes('--run-now');
+    const hasEpisodes = await hasExistingEpisodes(config.output.audioDir);
+
+    if (shouldRunNow || !hasEpisodes) {
+      if (!hasEpisodes) {
+        logger.info('エピソードが存在しないため、初回生成を開始します');
+      } else {
+        logger.info('起動時に即座に実行します');
+      }
       const result = await pipeline.run();
       if (result.success) {
         logger.info({ episodeId: result.episodeId, articleCount: result.articleCount }, '初回実行完了');
