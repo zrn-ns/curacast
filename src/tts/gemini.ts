@@ -70,7 +70,12 @@ export class GeminiTTS implements TTSProvider {
     const tempDir = os.tmpdir();
     const mp3Buffer = await convertWavBufferToMp3(wavBuffer, tempDir);
 
-    this.logger.debug({ voice: selectedVoice, mp3Size: mp3Buffer.length }, 'Gemini TTS生成完了');
+    this.logger.info({ voice: selectedVoice, mp3Size: mp3Buffer.length, textLength: text.length }, 'Gemini TTS生成完了');
+
+    // 空のバッファまたは異常に小さいバッファの場合は警告
+    if (mp3Buffer.length < 1000) {
+      this.logger.warn({ mp3Size: mp3Buffer.length, textLength: text.length }, 'TTS生成結果が異常に小さい');
+    }
 
     return mp3Buffer;
   }
