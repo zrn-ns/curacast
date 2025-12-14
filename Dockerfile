@@ -38,6 +38,9 @@ COPY --from=builder /app/dist ./dist
 # 設定ファイルをコピー
 COPY config ./config
 
+# 静的アセット（画像等）をコピー
+COPY public ./public
+
 # データディレクトリを作成
 RUN mkdir -p data output/scripts output/audio
 

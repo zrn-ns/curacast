@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   const app = createServer({
     port: config.server.port,
     audioDir: config.output.audioDir,
-    imagesDir: path.join(config.output.audioDir, 'images'),
+    imagesDir: path.resolve(process.cwd(), 'public/images'),
     feedPublisher: pipeline.getFeedPublisher(),
     pipeline,
   });
