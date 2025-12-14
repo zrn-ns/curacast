@@ -22,7 +22,6 @@ interests:
 # 除外したいトピック
 excludeTopics:
   - "ギャンブル"
-  - "LGBTQ"
 
 # 除外キーワード（タイトルにこれらが含まれる記事は除外）
 excludeKeywords:
