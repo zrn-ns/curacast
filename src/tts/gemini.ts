@@ -8,6 +8,7 @@ export interface GeminiTTSConfig {
   apiKey: string;
   model: string;
   voices: string[];
+  speakerPrompt?: string;
 }
 
 export class GeminiTTS implements TTSProvider {
@@ -16,21 +17,28 @@ export class GeminiTTS implements TTSProvider {
 
   private client: GoogleGenAI;
   private model: string;
+  private speakerPrompt?: string;
   private logger = getLogger();
 
   constructor(config: GeminiTTSConfig) {
     this.client = new GoogleGenAI({ apiKey: config.apiKey });
     this.model = config.model;
     this.availableVoices = config.voices;
+    this.speakerPrompt = config.speakerPrompt;
   }
 
   async generateAudio(text: string, voice?: string): Promise<Buffer> {
     const selectedVoice = voice ?? this.getRandomVoice();
     this.logger.debug({ voice: selectedVoice, textLength: text.length }, 'Gemini TTS生成開始');
 
+    // speakerPromptがある場合、テキストの前に付与して話し方のトーンを指示する
+    const promptedText = this.speakerPrompt
+      ? `${this.speakerPrompt}\n\n${text}`
+      : text;
+
     const response = await this.client.models.generateContent({
       model: this.model,
-      contents: [{ parts: [{ text }] }],
+      contents: [{ parts: [{ text: promptedText }] }],
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {

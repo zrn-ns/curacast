@@ -41,6 +41,8 @@ const ttsSchema = z.object({
   chunkSize: z.number().default(1500),
   concurrency: z.number().default(6),
   apiKey: z.string().optional(),
+  // 話者の声のトーン・スタイルを指示するプロンプト（Gemini TTS用）
+  speakerPrompt: z.string().optional(),
 });
 
 // サーバー設定

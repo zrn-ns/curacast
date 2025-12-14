@@ -17,6 +17,7 @@ export interface TTSConfig {
   chunkSize: number;
   concurrency: number;
   apiKey?: string;
+  speakerPrompt?: string;
 }
 
 // TTSプロバイダーを作成
@@ -26,6 +27,7 @@ export function createTTSProvider(config: TTSConfig): TTSProvider {
       apiKey: config.apiKey ?? process.env.GEMINI_API_KEY ?? '',
       model: config.model,
       voices: config.voices,
+      speakerPrompt: config.speakerPrompt,
     });
   } else if (config.provider === 'openai') {
     return new OpenAITTS({
@@ -46,6 +48,7 @@ export function createTTSProviderFromConfig(config: Config): TTSProvider {
     voices: config.tts.voices,
     chunkSize: config.tts.chunkSize,
     concurrency: config.tts.concurrency,
+    speakerPrompt: config.tts.speakerPrompt,
   });
 }
 
