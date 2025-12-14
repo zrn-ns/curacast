@@ -13,12 +13,58 @@ export interface FetchedArticle {
   siteName?: string;
 }
 
+// Yahoo!ニュースのpickupページから実際の記事URLを抽出
+async function resolveYahooNewsUrl(pickupUrl: string): Promise<string | null> {
+  try {
+    const response = await fetch(pickupUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CuraCast/1.0; +https://github.com/curacast)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ja,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const html = await response.text();
+    // /articles/ URLを抽出
+    const match = html.match(/href="(https:\/\/news\.yahoo\.co\.jp\/articles\/[^"]+)"/);
+    if (match?.[1]) {
+      // クエリパラメータと画像URLを除外
+      const articleUrl = match[1].split('?')[0];
+      if (!articleUrl?.includes('/images/')) {
+        return articleUrl ?? null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // 記事の本文を取得
 export async function fetchArticleContent(url: string): Promise<FetchedArticle | null> {
   try {
-    logger.debug({ url }, '記事本文を取得中');
+    let targetUrl = url;
 
-    const response = await fetch(url, {
+    // Yahoo!ニュースのpickupページの場合は実際の記事URLを取得
+    if (url.includes('news.yahoo.co.jp/pickup/')) {
+      logger.debug({ url }, 'Yahoo!ニュースpickupページから記事URLを取得中');
+      const articleUrl = await resolveYahooNewsUrl(url);
+      if (articleUrl) {
+        targetUrl = articleUrl;
+        logger.debug({ originalUrl: url, resolvedUrl: targetUrl }, 'Yahoo!ニュース記事URLを解決');
+      } else {
+        logger.warn({ url }, 'Yahoo!ニュース記事URLの解決に失敗');
+      }
+    }
+
+    logger.debug({ url: targetUrl }, '記事本文を取得中');
+
+    const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; CuraCast/1.0; +https://github.com/curacast)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
