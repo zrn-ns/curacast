@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { parseFile } from 'music-metadata';
@@ -63,8 +64,10 @@ export async function convertWavToMp3(wavPath: string, mp3Path: string): Promise
 
 // WAVバッファをMP3バッファに変換
 export async function convertWavBufferToMp3(wavBuffer: Buffer, tempDir: string): Promise<Buffer> {
-  const tempWavPath = path.join(tempDir, `temp_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`);
-  const tempMp3Path = path.join(tempDir, `temp_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`);
+  // 並列実行時の衝突を防ぐためcrypto.randomUUID()を使用
+  const uniqueId = crypto.randomUUID();
+  const tempWavPath = path.join(tempDir, `temp_${uniqueId}.wav`);
+  const tempMp3Path = path.join(tempDir, `temp_${uniqueId}.mp3`);
 
   try {
     // ディレクトリが存在しない場合は作成
@@ -159,7 +162,8 @@ export async function concatMp3Buffers(buffers: Buffer[], tempDir: string): Prom
     return buffers[0];
   }
 
-  const timestamp = Date.now();
+  // 並列実行時の衝突を防ぐためUUIDを使用
+  const uniqueId = crypto.randomUUID();
   const tempFiles: string[] = [];
 
   // 絶対パスに変換（ffmpegが正しくファイルを参照できるようにする）
@@ -169,22 +173,24 @@ export async function concatMp3Buffers(buffers: Buffer[], tempDir: string): Prom
     // ディレクトリが存在しない場合は作成
     await fs.mkdir(absoluteTempDir, { recursive: true });
 
-    // 各バッファを一時ファイルとして保存
+    // 各バッファを一時ファイルとして保存（インデックス順を維持）
     for (let i = 0; i < buffers.length; i++) {
       const buffer = buffers[i];
-      if (!buffer) continue;
-      const tempPath = path.join(absoluteTempDir, `chunk_${timestamp}_${i}.mp3`);
+      if (!buffer) {
+        throw new Error(`チャンク${i}のバッファが未定義です。TTS生成に失敗した可能性があります。`);
+      }
+      const tempPath = path.join(absoluteTempDir, `chunk_${uniqueId}_${i}.mp3`);
       await fs.writeFile(tempPath, buffer);
       tempFiles.push(tempPath);
     }
 
     // 連結リストファイルを作成（絶対パスを使用）
-    const listPath = path.join(absoluteTempDir, `concat_${timestamp}.txt`);
+    const listPath = path.join(absoluteTempDir, `concat_${uniqueId}.txt`);
     const listContent = tempFiles.map((f) => `file '${f}'`).join('\n');
     await fs.writeFile(listPath, listContent);
 
     // 出力ファイルパス
-    const outputPath = path.join(absoluteTempDir, `output_${timestamp}.mp3`);
+    const outputPath = path.join(absoluteTempDir, `output_${uniqueId}.mp3`);
 
     // ffmpegで結合
     await new Promise<void>((resolve, reject) => {

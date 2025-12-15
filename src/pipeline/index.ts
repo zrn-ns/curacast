@@ -361,14 +361,22 @@ export class Pipeline {
       const batchResults = await Promise.all(
         batch.map(async (chunk, index) => {
           const absoluteIndex = i + index;
-          this.logger.debug({ chunk: absoluteIndex + 1, total: chunks.length }, 'チャンク処理中');
+          this.logger.debug({ chunk: absoluteIndex + 1, total: chunks.length, textLength: chunk.length }, 'チャンク処理開始');
           const buffer = await ttsProvider.generateAudio(chunk);
+          this.logger.debug({ chunk: absoluteIndex + 1, bufferSize: buffer.length }, 'チャンク処理完了');
+
+          // 異常に小さいバッファの検出（無音の可能性）
+          if (buffer.length < 1000) {
+            this.logger.warn({ chunk: absoluteIndex + 1, bufferSize: buffer.length, textLength: chunk.length }, 'チャンクの音声が異常に小さい（無音の可能性）');
+          }
+
           return { index: absoluteIndex, buffer };
         })
       );
 
       for (const { index, buffer } of batchResults) {
         audioBuffers[index] = buffer;
+        this.logger.debug({ index, bufferSize: buffer.length }, 'audioBuffers配列に格納');
       }
 
       this.logger.info(
@@ -377,10 +385,21 @@ export class Pipeline {
       );
     }
 
+    // 全チャンクが正常に生成されたことを検証
+    const missingChunks: number[] = [];
+    for (let i = 0; i < audioBuffers.length; i++) {
+      if (!audioBuffers[i]) {
+        missingChunks.push(i);
+      }
+    }
+    if (missingChunks.length > 0) {
+      throw new Error(`チャンク${missingChunks.join(', ')}の音声生成に失敗しました`);
+    }
+
     // 音声を結合（ffmpegを使用してメタデータも正しく設定）
     const tempDir = path.join(this.config.output.audioDir, '.temp');
     const combinedBuffer = await concatMp3Buffers(
-      audioBuffers.filter((b): b is Buffer => b !== undefined),
+      audioBuffers as Buffer[],  // 上記の検証により、全要素がBufferであることが保証される
       tempDir
     );
 
