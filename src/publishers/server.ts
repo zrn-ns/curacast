@@ -230,6 +230,48 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // 台本と音声を削除するエンドポイント
+  app.delete('/scripts/:id', async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    logger.info({ scriptId }, '台本削除を開始');
+
+    try {
+      const result = await config.pipeline.deleteScript(scriptId);
+      logger.info({ scriptId, ...result }, '台本削除が完了しました');
+      res.json({ success: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, '台本削除でエラーが発生しました');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // 音声のみを削除するエンドポイント（台本は保持）
+  app.delete('/scripts/:id/audio', async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    logger.info({ scriptId }, '音声削除を開始');
+
+    try {
+      const result = await config.pipeline.deleteAudio(scriptId);
+      logger.info({ scriptId, ...result }, '音声削除が完了しました');
+      res.json({ success: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, '音声削除でエラーが発生しました');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   return app;
 }
 
@@ -318,6 +360,17 @@ function getDashboardHtml(canGenerate: boolean): string {
       box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
     }
     button.danger:hover { box-shadow: 0 6px 16px rgba(211, 47, 47, 0.4); }
+    button.btn-secondary {
+      background: linear-gradient(135deg, #78909c 0%, #546e7a 100%);
+      box-shadow: 0 4px 12px rgba(84, 110, 122, 0.3);
+    }
+    button.btn-secondary:hover { box-shadow: 0 6px 16px rgba(84, 110, 122, 0.4); }
+    button.btn-danger {
+      background: linear-gradient(135deg, #e57373 0%, #d32f2f 100%);
+      box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+      padding: 0.4rem 0.6rem;
+    }
+    button.btn-danger:hover { box-shadow: 0 6px 16px rgba(211, 47, 47, 0.4); }
     .btn-group { display: flex; flex-direction: column; gap: 0.5rem; }
     .btn-small {
       padding: 0.5rem 1rem;
@@ -565,9 +618,14 @@ function getDashboardHtml(canGenerate: boolean): string {
 
         list.innerHTML = data.scripts.map(script => {
           const date = new Date(script.createdAt).toLocaleDateString('ja-JP');
-          const actions = script.hasAudio
-            ? '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>'
-            : '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
+          let actions = '';
+          if (script.hasAudio) {
+            actions = '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>' +
+              '<button class="btn-secondary" onclick="deleteAudio(\\'' + script.id + '\\')">🔄 再生成</button>';
+          } else {
+            actions = '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
+          }
+          actions += '<button class="btn-danger" onclick="deleteScript(\\'' + script.id + '\\')">🗑️</button>';
 
           return '<div class="script-item">' +
             '<div class="script-info">' +
@@ -607,6 +665,72 @@ function getDashboardHtml(canGenerate: boolean): string {
         } else {
           msg.textContent = '❌ エラー: ' + data.error;
           msg.className = 'message error';
+        }
+      } catch (e) {
+        msg.textContent = '❌ 通信エラー';
+        msg.className = 'message error';
+      }
+    }
+
+    async function deleteScript(scriptId) {
+      const msg = document.getElementById('scriptMessage');
+      msg.className = 'message';
+      msg.style.display = 'none';
+
+      if (!confirm('台本「' + scriptId + '」を削除しますか？\\n（音声も削除されます。この操作は取り消せません）')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/scripts/' + scriptId, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          msg.textContent = '✅ 削除完了';
+          msg.className = 'message success';
+          loadScripts();
+        } else {
+          msg.textContent = '❌ エラー: ' + data.error;
+          msg.className = 'message error';
+        }
+      } catch (e) {
+        msg.textContent = '❌ 通信エラー';
+        msg.className = 'message error';
+      }
+    }
+
+    async function deleteAudio(scriptId) {
+      const msg = document.getElementById('scriptMessage');
+      msg.className = 'message';
+      msg.style.display = 'none';
+
+      if (!confirm('音声を削除して再生成しますか？\\n（数分かかる場合があります）')) {
+        return;
+      }
+
+      msg.textContent = '⏳ 音声を削除して再生成中...';
+      msg.className = 'message success';
+
+      try {
+        // 音声を削除
+        const deleteRes = await fetch('/scripts/' + scriptId + '/audio', { method: 'DELETE' });
+        const deleteData = await deleteRes.json();
+        if (!deleteData.success) {
+          msg.textContent = '❌ 削除エラー: ' + deleteData.error;
+          msg.className = 'message error';
+          return;
+        }
+
+        // 音声を再生成
+        const genRes = await fetch('/scripts/' + scriptId + '/generate-audio', { method: 'POST' });
+        const genData = await genRes.json();
+        if (genData.success) {
+          msg.textContent = '✅ 再生成完了: ' + genData.episodeId;
+          msg.className = 'message success';
+          loadScripts();
+        } else {
+          msg.textContent = '❌ 生成エラー: ' + genData.error;
+          msg.className = 'message error';
+          loadScripts();
         }
       } catch (e) {
         msg.textContent = '❌ 通信エラー';

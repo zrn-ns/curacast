@@ -503,6 +503,67 @@ export class Pipeline {
     return { audioFiles, scriptFiles };
   }
 
+  // 特定の台本と音声を削除
+  async deleteScript(scriptId: string): Promise<{ scriptDeleted: boolean; audioDeleted: boolean; feedUpdated: boolean }> {
+    const scriptPath = path.join(this.config.output.scriptsDir, `${scriptId}.txt`);
+    const audioPath = path.join(this.config.output.audioDir, `${scriptId}.mp3`);
+
+    let scriptDeleted = false;
+    let audioDeleted = false;
+
+    // 台本ファイルを削除
+    try {
+      await fs.unlink(scriptPath);
+      scriptDeleted = true;
+      this.logger.debug({ scriptId }, '台本ファイルを削除しました');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // 音声ファイルを削除
+    try {
+      await fs.unlink(audioPath);
+      audioDeleted = true;
+      this.logger.debug({ scriptId }, '音声ファイルを削除しました');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // RSSフィードから削除
+    const feedUpdated = await this.feedPublisher.removeEpisode(scriptId);
+
+    this.logger.info({ scriptId, scriptDeleted, audioDeleted, feedUpdated }, '台本と音声を削除しました');
+    return { scriptDeleted, audioDeleted, feedUpdated };
+  }
+
+  // 特定の音声のみを削除（台本は保持）
+  async deleteAudio(scriptId: string): Promise<{ audioDeleted: boolean; feedUpdated: boolean }> {
+    const audioPath = path.join(this.config.output.audioDir, `${scriptId}.mp3`);
+
+    let audioDeleted = false;
+
+    // 音声ファイルを削除
+    try {
+      await fs.unlink(audioPath);
+      audioDeleted = true;
+      this.logger.debug({ scriptId }, '音声ファイルを削除しました');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // RSSフィードから削除
+    const feedUpdated = await this.feedPublisher.removeEpisode(scriptId);
+
+    this.logger.info({ scriptId, audioDeleted, feedUpdated }, '音声を削除しました');
+    return { audioDeleted, feedUpdated };
+  }
+
   // ピックアップ済み記事をクリア
   async clearProcessedArticles(): Promise<number> {
     return await this.storage.clearProcessedArticles();

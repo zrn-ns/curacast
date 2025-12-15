@@ -184,6 +184,90 @@ export class RSSFeedPublisher implements Publisher {
     this.logger.info('RSSフィードをクリアしました');
   }
 
+  // 特定のエピソードをフィードから削除
+  async removeEpisode(episodeId: string): Promise<boolean> {
+    try {
+      const feedPath = this.config.outputPath;
+      const feedContent = await fs.readFile(feedPath, 'utf-8');
+
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+      });
+      const parsed = parser.parse(feedContent);
+
+      const channel = parsed?.rss?.channel;
+      if (!channel) {
+        return false;
+      }
+
+      // itemが配列でない場合（1件のみ）は配列に変換
+      const items = channel.item
+        ? Array.isArray(channel.item)
+          ? channel.item
+          : [channel.item]
+        : [];
+
+      // 指定されたエピソードを除外
+      const filteredItems = items.filter((item: { guid?: { '#text'?: string } | string }) => {
+        const guidValue = item.guid;
+        const guid = typeof guidValue === 'object' ? guidValue?.['#text'] ?? '' : guidValue ?? '';
+        return guid !== episodeId;
+      });
+
+      // エピソードが見つからなかった場合
+      if (filteredItems.length === items.length) {
+        this.logger.debug({ episodeId }, 'フィードに該当エピソードが見つかりません');
+        return false;
+      }
+
+      // フィードを再構築
+      this.feed = this.createFeed();
+      for (const item of filteredItems) {
+        const guidValue = item.guid;
+        const guid = typeof guidValue === 'object' ? guidValue?.['#text'] ?? '' : guidValue ?? '';
+        this.feed.item({
+          title: item.title ?? '',
+          description: item.description ?? '',
+          url: item.link ?? '',
+          guid,
+          date: item.pubDate ? new Date(item.pubDate) : new Date(),
+          enclosure: item.enclosure
+            ? {
+                url: item.enclosure['@_url'] ?? '',
+                type: item.enclosure['@_type'] ?? 'audio/mpeg',
+              }
+            : undefined,
+          custom_elements: [
+            item['itunes:image']
+              ? {
+                  'itunes:image': {
+                    _attr: { href: item['itunes:image']['@_href'] ?? '' },
+                  },
+                }
+              : null,
+            item['itunes:duration']
+              ? { 'itunes:duration': item['itunes:duration'] }
+              : null,
+            { 'itunes:explicit': 'no' },
+            item['content:encoded']
+              ? { 'content:encoded': { _cdata: item['content:encoded'] } }
+              : null,
+          ].filter(Boolean),
+        });
+      }
+
+      await this.saveFeed();
+      this.logger.info({ episodeId }, 'エピソードをフィードから削除しました');
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   private async saveFeed(): Promise<void> {
     const feedXml = this.getFeed();
     const outputDir = path.dirname(this.config.outputPath);
