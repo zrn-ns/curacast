@@ -174,6 +174,62 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // 台本一覧エンドポイント
+  app.get('/scripts', async (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      const scripts = await config.pipeline.getScripts();
+      res.json({ scripts });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, '台本一覧取得エラー');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // 台本から音声生成エンドポイント
+  app.post('/scripts/:id/generate-audio', async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    if (isGenerating) {
+      res.status(409).json({ error: '生成中です。完了までお待ちください' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    isGenerating = true;
+    logger.info({ scriptId }, '台本から音声生成を開始');
+
+    try {
+      const result = await config.pipeline.generateAudioFromScript(scriptId);
+      isGenerating = false;
+
+      if (result.success) {
+        logger.info({ scriptId, episodeId: result.episodeId }, '音声生成が完了しました');
+        res.json({
+          success: true,
+          episodeId: result.episodeId,
+          audioPath: result.audioPath,
+        });
+      } else {
+        logger.error({ error: result.error, scriptId }, '音声生成が失敗しました');
+        res.status(500).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      isGenerating = false;
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, '音声生成でエラーが発生しました');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   return app;
 }
 
@@ -283,6 +339,43 @@ function getDashboardHtml(canGenerate: boolean): string {
     }
     .message.success { background: #d4edda; color: #155724; display: block; }
     .message.error { background: #f8d7da; color: #721c24; display: block; }
+    .script-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .script-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem;
+      background: rgba(212, 165, 116, 0.1);
+      border-radius: 8px;
+      gap: 0.5rem;
+    }
+    .script-info { flex: 1; min-width: 0; }
+    .script-title {
+      font-weight: 500;
+      color: #5c4033;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 0.9rem;
+    }
+    .script-id { font-size: 0.75rem; color: #a08060; }
+    .script-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .script-actions button, .script-actions a {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      width: auto;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .script-actions a {
+      background: linear-gradient(135deg, #7cb342 0%, #689f38 100%);
+      color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(124, 179, 66, 0.3);
+    }
+    .empty-message { color: #a08060; font-size: 0.9rem; text-align: center; padding: 1rem; }
   </style>
 </head>
 <body>
@@ -332,6 +425,14 @@ function getDashboardHtml(canGenerate: boolean): string {
         <button class="btn-small danger" onclick="clearData('failed', '失敗URL')">🗑️ 失敗URLをクリア</button>
       </div>
       <div class="message" id="clearMessage"></div>
+    </div>
+
+    <div class="card">
+      <h2>台本一覧</h2>
+      <div class="script-list" id="scriptList">
+        <div class="empty-message">読み込み中...</div>
+      </div>
+      <div class="message" id="scriptMessage"></div>
     </div>
     ` : ''}
   </div>
@@ -425,10 +526,77 @@ function getDashboardHtml(canGenerate: boolean): string {
       }
     }
 
+    async function loadScripts() {
+      try {
+        const res = await fetch('/scripts');
+        const data = await res.json();
+        const list = document.getElementById('scriptList');
+
+        if (!data.scripts || data.scripts.length === 0) {
+          list.innerHTML = '<div class="empty-message">台本がありません</div>';
+          return;
+        }
+
+        list.innerHTML = data.scripts.map(script => {
+          const date = new Date(script.createdAt).toLocaleDateString('ja-JP');
+          const actions = script.hasAudio
+            ? '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>'
+            : '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
+
+          return '<div class="script-item">' +
+            '<div class="script-info">' +
+              '<div class="script-title">' + escapeHtml(script.title) + '</div>' +
+              '<div class="script-id">' + script.id + ' (' + date + ')' + (script.hasAudio ? ' ✅' : '') + '</div>' +
+            '</div>' +
+            '<div class="script-actions">' + actions + '</div>' +
+          '</div>';
+        }).join('');
+      } catch {
+        document.getElementById('scriptList').innerHTML = '<div class="empty-message">読み込みエラー</div>';
+      }
+    }
+
+    async function generateAudioFromScript(scriptId) {
+      const msg = document.getElementById('scriptMessage');
+      msg.className = 'message';
+      msg.style.display = 'none';
+
+      if (!confirm('台本「' + scriptId + '」から音声を生成しますか？\\n（数分かかる場合があります）')) {
+        return;
+      }
+
+      msg.textContent = '⏳ 音声生成中...';
+      msg.className = 'message success';
+
+      try {
+        const res = await fetch('/scripts/' + scriptId + '/generate-audio', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          msg.textContent = '✅ 音声生成完了: ' + data.episodeId;
+          msg.className = 'message success';
+          loadScripts();
+        } else {
+          msg.textContent = '❌ エラー: ' + data.error;
+          msg.className = 'message error';
+        }
+      } catch (e) {
+        msg.textContent = '❌ 通信エラー';
+        msg.className = 'message error';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     checkStatus();
     loadStats();
+    loadScripts();
     setInterval(checkStatus, 5000);
     setInterval(loadStats, 10000);
+    setInterval(loadScripts, 10000);
   </script>
 </body>
 </html>`;

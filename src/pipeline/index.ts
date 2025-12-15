@@ -493,4 +493,143 @@ export class Pipeline {
   async clearFailedUrls(): Promise<number> {
     return await this.storage.clearFailedUrls();
   }
+
+  // 台本一覧を取得
+  async getScripts(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      hasAudio: boolean;
+      createdAt: Date;
+    }>
+  > {
+    const scriptsDir = this.config.output.scriptsDir;
+    const audioDir = this.config.output.audioDir;
+
+    let scriptFiles: string[] = [];
+    try {
+      const files = await fs.readdir(scriptsDir);
+      scriptFiles = files.filter((f) => f.endsWith('.txt'));
+    } catch {
+      return [];
+    }
+
+    const scripts = await Promise.all(
+      scriptFiles.map(async (file) => {
+        const id = file.replace('.txt', '');
+        const scriptPath = path.join(scriptsDir, file);
+        const audioPath = path.join(audioDir, `${id}.mp3`);
+
+        // タイトルを台本の最初の行から取得（または日付から生成）
+        let title = `エピソード ${id}`;
+        try {
+          const content = await fs.readFile(scriptPath, 'utf-8');
+          const lines = content.split('\n').filter((l) => l.trim());
+          // 「今日のテーマは」で始まる行を探す
+          const themeLine = lines.find((l) => l.includes('今日のテーマは'));
+          if (themeLine) {
+            const match = themeLine.match(/「(.+?)」/);
+            if (match?.[1]) {
+              title = match[1];
+            }
+          }
+        } catch {
+          // タイトル取得に失敗した場合はデフォルト値を使用
+        }
+
+        // 音声ファイルが存在するかチェック
+        let hasAudio = false;
+        try {
+          await fs.access(audioPath);
+          hasAudio = true;
+        } catch {
+          hasAudio = false;
+        }
+
+        // ファイルの作成日時を取得
+        let createdAt = new Date();
+        try {
+          const stat = await fs.stat(scriptPath);
+          createdAt = stat.birthtime;
+        } catch {
+          // 日時取得に失敗した場合は現在時刻を使用
+        }
+
+        return { id, title, hasAudio, createdAt };
+      })
+    );
+
+    // 作成日時の降順でソート
+    return scripts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  // 既存の台本から音声を生成してRSSフィードに追加
+  async generateAudioFromScript(scriptId: string): Promise<{
+    success: boolean;
+    audioPath?: string;
+    episodeId?: string;
+    error?: string;
+  }> {
+    const scriptPath = path.join(this.config.output.scriptsDir, `${scriptId}.txt`);
+
+    try {
+      // 台本を読み込む
+      const content = await fs.readFile(scriptPath, 'utf-8');
+
+      // タイトルを抽出
+      let title = `エピソード ${scriptId}`;
+      const lines = content.split('\n').filter((l) => l.trim());
+      const themeLine = lines.find((l) => l.includes('今日のテーマは'));
+      if (themeLine) {
+        const match = themeLine.match(/「(.+?)」/);
+        if (match?.[1]) {
+          title = match[1];
+        }
+      }
+
+      // Scriptオブジェクトを作成
+      const script: Script = {
+        id: scriptId,
+        title,
+        content,
+        articles: [],
+        generatedAt: new Date(),
+        estimatedDuration: Math.ceil(content.length / 350), // 約350文字/分
+      };
+
+      // 音声生成
+      this.logger.info({ scriptId }, '台本から音声生成を開始');
+      const audioPath = await this.generateAudio(script);
+      this.logger.info({ scriptId, audioPath }, '音声生成完了');
+
+      // エピソード公開
+      const duration = await getAudioDuration(audioPath);
+      const episode: Episode = {
+        id: script.id,
+        title: script.title,
+        description: '台本から生成されたエピソード',
+        audioPath,
+        duration,
+        publishedAt: new Date(),
+        script: script.content,
+        articles: [],
+      };
+
+      await this.feedPublisher.publish(episode);
+      this.logger.info({ episodeId: episode.id }, 'エピソードを公開しました');
+
+      return {
+        success: true,
+        audioPath,
+        episodeId: script.id,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error({ error: message, scriptId }, '台本からの音声生成に失敗');
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
 }
