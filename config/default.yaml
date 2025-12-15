@@ -30,6 +30,12 @@ collectors:
       - name: "Publickey"
         url: "https://www.publickey1.jp/atom.xml"
         category: "tech"
+      - name: "The Verge"
+        url: "https://www.theverge.com/rss/index.xml"
+        category: "tech"
+      - name: "TechCrunch"
+        url: "https://techcrunch.com/feed/"
+        category: "tech"
 
   hatena:
     enabled: true
