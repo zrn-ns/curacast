@@ -438,12 +438,16 @@ function getDashboardHtml(canGenerate: boolean): string {
   </div>
 
   <script>
+    let isGenerating = false;
+
     async function checkStatus() {
       try {
         const res = await fetch('/status');
         const data = await res.json();
         const dot = document.getElementById('statusDot');
         const text = document.getElementById('statusText');
+        isGenerating = data.generating;
+
         if (data.generating) {
           dot.classList.add('generating');
           text.textContent = '生成中...';
@@ -451,9 +455,31 @@ function getDashboardHtml(canGenerate: boolean): string {
           dot.classList.remove('generating');
           text.textContent = '正常';
         }
+
+        // 生成ボタンの状態を更新
+        updateGenerateButtons();
       } catch {
         document.getElementById('statusText').textContent = 'エラー';
       }
+    }
+
+    function updateGenerateButtons() {
+      // エピソード生成ボタン
+      const generateBtn = document.getElementById('generateBtn');
+      if (generateBtn) {
+        generateBtn.disabled = isGenerating;
+        if (isGenerating && generateBtn.textContent !== '⏳ 生成中...') {
+          generateBtn.textContent = '⏳ 生成中...';
+        } else if (!isGenerating && generateBtn.textContent === '⏳ 生成中...') {
+          generateBtn.textContent = '🎬 今すぐ生成';
+        }
+      }
+
+      // 台本一覧の音声生成ボタン
+      const scriptButtons = document.querySelectorAll('.script-actions button');
+      scriptButtons.forEach(btn => {
+        btn.disabled = isGenerating;
+      });
     }
 
     async function generate() {
@@ -551,6 +577,9 @@ function getDashboardHtml(canGenerate: boolean): string {
             '<div class="script-actions">' + actions + '</div>' +
           '</div>';
         }).join('');
+
+        // 生成中の場合はボタンを無効化
+        updateGenerateButtons();
       } catch {
         document.getElementById('scriptList').innerHTML = '<div class="empty-message">読み込みエラー</div>';
       }
