@@ -352,48 +352,28 @@ export class Pipeline {
 
     this.logger.info({ chunkCount: chunks.length }, 'テキストを分割しました');
 
-    // チャンクを並列処理
-    const audioBuffers: Buffer[] = new Array(chunks.length);
-    const concurrency = this.config.tts.concurrency;
+    // チャンクを直列処理（安定性のため）
+    const audioBuffers: Buffer[] = [];
 
-    for (let i = 0; i < chunks.length; i += concurrency) {
-      const batch = chunks.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map(async (chunk, index) => {
-          const absoluteIndex = i + index;
-          this.logger.debug({ chunk: absoluteIndex + 1, total: chunks.length, textLength: chunk.length }, 'チャンク処理開始');
-          const buffer = await ttsProvider.generateAudio(chunk);
-          this.logger.debug({ chunk: absoluteIndex + 1, bufferSize: buffer.length }, 'チャンク処理完了');
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      if (!chunk) continue;
 
-          // 異常に小さいバッファの検出（無音の可能性）
-          if (buffer.length < 1000) {
-            this.logger.warn({ chunk: absoluteIndex + 1, bufferSize: buffer.length, textLength: chunk.length }, 'チャンクの音声が異常に小さい（無音の可能性）');
-          }
+      this.logger.debug({ chunk: i + 1, total: chunks.length, textLength: chunk.length }, 'チャンク処理開始');
+      const buffer = await ttsProvider.generateAudio(chunk);
+      this.logger.debug({ chunk: i + 1, bufferSize: buffer.length }, 'チャンク処理完了');
 
-          return { index: absoluteIndex, buffer };
-        })
-      );
-
-      for (const { index, buffer } of batchResults) {
-        audioBuffers[index] = buffer;
-        this.logger.debug({ index, bufferSize: buffer.length }, 'audioBuffers配列に格納');
+      // 異常に小さいバッファの検出（無音の可能性）
+      if (buffer.length < 1000) {
+        this.logger.warn({ chunk: i + 1, bufferSize: buffer.length, textLength: chunk.length }, 'チャンクの音声が異常に小さい（無音の可能性）');
       }
+
+      audioBuffers.push(buffer);
 
       this.logger.info(
-        { processed: Math.min(i + concurrency, chunks.length), total: chunks.length },
-        'バッチ処理完了'
+        { processed: i + 1, total: chunks.length },
+        'チャンク処理完了'
       );
-    }
-
-    // 全チャンクが正常に生成されたことを検証
-    const missingChunks: number[] = [];
-    for (let i = 0; i < audioBuffers.length; i++) {
-      if (!audioBuffers[i]) {
-        missingChunks.push(i);
-      }
-    }
-    if (missingChunks.length > 0) {
-      throw new Error(`チャンク${missingChunks.join(', ')}の音声生成に失敗しました`);
     }
 
     // 音声を結合（ffmpegを使用してメタデータも正しく設定）
