@@ -6,6 +6,7 @@ import type { UserProfile } from '../config/index.js';
 import { getLogger } from '../utils/logger.js';
 import { generateArticleId } from '../utils/text.js';
 import { fetchArticleContent, truncateContent } from '../utils/article-fetcher.js';
+import { getAvoidTopicsPrompt, addOpeningTopic } from '../utils/opening-topic-history.js';
 
 export interface LLMScriptGeneratorConfig {
   provider: 'gemini' | 'openai';
@@ -52,11 +53,21 @@ export class LLMScriptGenerator implements ScriptGenerator {
 
     try {
       const rawResponse = await this.callLLM(prompt);
-      const { title: generatedTitle, script: rawScript } = this.parseScriptResponse(rawResponse);
+      const { title: generatedTitle, script: rawScript, openingTopic } = this.parseScriptResponse(rawResponse);
       const scriptContent = this.cleanScript(rawScript);
       const today = new Date();
       const dateStr = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
       const randomSuffix = generateArticleId(`${Date.now()}-${Math.random()}`);
+
+      // オープニングトピックを履歴に保存
+      if (openingTopic) {
+        try {
+          addOpeningTopic(openingTopic, today);
+          this.logger.debug({ openingTopic }, 'オープニングトピックを履歴に保存しました');
+        } catch (error) {
+          this.logger.warn({ error }, 'オープニングトピック履歴の保存に失敗しました');
+        }
+      }
 
       const script: Script = {
         id: `${dateStr}-${randomSuffix}`,
@@ -156,6 +167,9 @@ ${catchphraseSection}
     const weekdays = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
     const weekday = weekdays[today.getDay()];
 
+    // オープニングで避けるべきトピック（直近の履歴から）
+    const avoidTopicsPrompt = getAvoidTopicsPrompt();
+
     const openingSection = style.includeIntro
       ? `## オープニング
 今日は${dateStr}（${weekday}）です。
@@ -163,6 +177,7 @@ ${catchphraseSection}
 オープニングトークは日付に関連した話題（今日は何の日か、季節感、時事的な話題など）を短く触れてください。
 話者はAIなので、個人的な体験談や嘘の情報は含めないでください。
 その後、今日紹介するトピックを軽く予告してください。
+${avoidTopicsPrompt}
 `
       : '';
 
@@ -226,11 +241,13 @@ ${articlesSummary}
 \`\`\`json
 {
   "title": "【年/月/日】一言概要（例: 【2024/12/14】React脆弱性とWebGPUの進化）",
-  "script": "台本の内容..."
+  "script": "台本の内容...",
+  "openingTopic": "オープニングで触れた話題（例: 冬至、大掃除の季節、今日は〇〇の日）"
 }
 \`\`\`
 
-titleは必ず【年/月/日】形式の日付で始め、その日のトピックを端的に表す一言概要を含めてください（30文字以内推奨）。`;
+titleは必ず【年/月/日】形式の日付で始め、その日のトピックを端的に表す一言概要を含めてください（30文字以内推奨）。
+openingTopicはオープニングトークで言及した季節・時事の話題を簡潔に（10-20文字程度）記載してください。`;
   }
 
   private async callLLM(prompt: string): Promise<string> {
@@ -288,14 +305,14 @@ titleは必ず【年/月/日】形式の日付で始め、その日のトピッ�
     return content;
   }
 
-  private parseScriptResponse(response: string): { title: string; script: string } {
+  private parseScriptResponse(response: string): { title: string; script: string; openingTopic?: string } {
     // JSONブロックを抽出
     const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
     if (jsonMatch && jsonMatch[1]) {
       try {
-        const parsed = JSON.parse(jsonMatch[1]) as { title?: string; script?: string };
+        const parsed = JSON.parse(jsonMatch[1]) as { title?: string; script?: string; openingTopic?: string };
         if (parsed.title && parsed.script) {
-          return { title: parsed.title, script: parsed.script };
+          return { title: parsed.title, script: parsed.script, openingTopic: parsed.openingTopic };
         }
       } catch (error) {
         this.logger.warn({ error }, 'JSON形式の応答をパースできませんでした。フォールバックします');
