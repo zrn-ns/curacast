@@ -1,5 +1,5 @@
 // テキスト分割の最大サイズ（Gemini TTSの4000バイト制限に対応、日本語1文字≒3バイト）
-const DEFAULT_MAX_CHUNK_SIZE = 1200;
+const DEFAULT_MAX_CHUNK_SIZE = 1400;
 
 export interface SplitOptions {
   maxChunkSize?: number;
