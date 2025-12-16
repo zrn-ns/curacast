@@ -38,7 +38,7 @@ const ttsSchema = z.object({
   provider: z.enum(['gemini', 'openai']).default('gemini'),
   model: z.string().default('gemini-2.5-flash-preview-tts'),
   voices: z.array(z.string()).default(['Laomedeia']),
-  chunkSize: z.number().default(1500),
+  chunkSize: z.number().default(1200),
   concurrency: z.number().default(6),
   apiKey: z.string().optional(),
   // 話者の声のトーン・スタイルを指示するプロンプト（Gemini TTS用）
