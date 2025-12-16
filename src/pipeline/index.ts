@@ -354,14 +354,41 @@ export class Pipeline {
 
     // チャンクを直列処理（安定性のため）
     const audioBuffers: Buffer[] = [];
+    const maxRetries = 3;
+    const retryDelayMs = 2000;
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       if (!chunk) continue;
 
-      this.logger.debug({ chunk: i + 1, total: chunks.length, textLength: chunk.length }, 'チャンク処理開始');
-      const buffer = await ttsProvider.generateAudio(chunk);
-      this.logger.debug({ chunk: i + 1, bufferSize: buffer.length }, 'チャンク処理完了');
+      let buffer: Buffer | null = null;
+      let lastError: Error | null = null;
+
+      // リトライ処理
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          this.logger.debug({ chunk: i + 1, total: chunks.length, textLength: chunk.length, attempt }, 'チャンク処理開始');
+          buffer = await ttsProvider.generateAudio(chunk);
+          this.logger.debug({ chunk: i + 1, bufferSize: buffer.length, attempt }, 'チャンク処理完了');
+          break; // 成功したらループを抜ける
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          this.logger.warn(
+            { chunk: i + 1, attempt, maxRetries, error: lastError.message },
+            'チャンク処理失敗、リトライします'
+          );
+
+          if (attempt < maxRetries) {
+            // リトライ前に待機
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+          }
+        }
+      }
+
+      // 全リトライ失敗
+      if (!buffer) {
+        throw new Error(`チャンク${i + 1}の音声生成に失敗しました（${maxRetries}回リトライ後）: ${lastError?.message}`);
+      }
 
       // 異常に小さいバッファの検出（無音の可能性）
       if (buffer.length < 1000) {
