@@ -115,7 +115,7 @@ export const profileSchema = z.object({
   interests: z.array(z.string()).default([]),
   excludeTopics: z.array(z.string()).default([]),
   excludeKeywords: z.array(z.string()).default([]),
-  maxArticlesPerRun: z.number().default(5),
+  maxArticlesPerRun: z.number().default(7),
   preferredSources: z.array(z.string()).default([]),
   narrator: narratorSchema.default({}),
   scriptStyle: scriptStyleSchema.default({}),
