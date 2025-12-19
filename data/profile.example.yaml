@@ -43,8 +43,8 @@ excludeKeywords:
   - "スポンサー"
   - "プロモーション"
 
-# 1回の実行で選定する最大記事数（15分の台本には5記事程度が適切）
-maxArticlesPerRun: 5
+# 1回の実行で選定する最大記事数
+maxArticlesPerRun: 7
 
 # 優先ソース（同スコアの場合こちらを優先）
 preferredSources:
