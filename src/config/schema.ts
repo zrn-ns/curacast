@@ -61,6 +61,7 @@ const scheduleSchema = z.object({
 const outputSchema = z.object({
   scriptsDir: z.string().default('./output/scripts'),
   audioDir: z.string().default('./output/audio'),
+  chunksDir: z.string().default('./output/chunks'),
   dataDir: z.string().default('./data'),
 });
 

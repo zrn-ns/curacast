@@ -89,6 +89,13 @@ export class JsonStorage {
     return this.data.processedArticles.length;
   }
 
+  // 処理済み記事一覧を取得
+  getProcessedArticles(): ProcessedArticle[] {
+    return [...this.data.processedArticles].sort(
+      (a, b) => new Date(b.processedAt).getTime() - new Date(a.processedAt).getTime()
+    );
+  }
+
   // 古い処理済み記事を削除（保持期間を過ぎたもの）
   async cleanup(retentionDays: number = 30): Promise<number> {
     const cutoffDate = new Date();

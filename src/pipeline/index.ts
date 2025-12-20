@@ -56,6 +56,7 @@ export class Pipeline {
     // 出力ディレクトリを作成
     await fs.mkdir(this.config.output.scriptsDir, { recursive: true });
     await fs.mkdir(this.config.output.audioDir, { recursive: true });
+    await fs.mkdir(this.config.output.chunksDir, { recursive: true });
     await fs.mkdir(this.config.output.dataDir, { recursive: true });
 
     // 既存のフィードを読み込む
@@ -353,8 +354,19 @@ export class Pipeline {
 
     this.logger.info({ chunkCount: chunks.length }, 'テキストを分割しました');
 
+    // チャンク保存用ディレクトリを作成
+    const chunkDir = path.join(this.config.output.chunksDir, script.id);
+    await fs.mkdir(chunkDir, { recursive: true });
+
     // チャンクを直列処理（安定性のため）
     const audioBuffers: Buffer[] = [];
+    const chunkInfoList: {
+      index: number;
+      text: string;
+      audioFile: string;
+      audioSize: number;
+      isSmall: boolean;
+    }[] = [];
     const maxRetries = 3;
     const retryDelayMs = 2000;
 
@@ -392,9 +404,24 @@ export class Pipeline {
       }
 
       // 異常に小さいバッファの検出（無音の可能性）
-      if (buffer.length < 1000) {
+      const isSmall = buffer.length < 1000;
+      if (isSmall) {
         this.logger.warn({ chunk: i + 1, bufferSize: buffer.length, textLength: chunk.length }, 'チャンクの音声が異常に小さい（無音の可能性）');
       }
+
+      // チャンク音声を個別に保存
+      const chunkFileName = `chunk_${i}.mp3`;
+      const chunkFilePath = path.join(chunkDir, chunkFileName);
+      await fs.writeFile(chunkFilePath, buffer);
+
+      // チャンク情報を記録
+      chunkInfoList.push({
+        index: i,
+        text: chunk,
+        audioFile: chunkFileName,
+        audioSize: buffer.length,
+        isSmall,
+      });
 
       audioBuffers.push(buffer);
 
@@ -403,6 +430,21 @@ export class Pipeline {
         'チャンク処理完了'
       );
     }
+
+    // チャンク情報をJSONで保存
+    const chunksJson = {
+      scriptId: script.id,
+      scriptTitle: script.title,
+      generatedAt: new Date().toISOString(),
+      totalChunks: chunkInfoList.length,
+      chunks: chunkInfoList,
+    };
+    await fs.writeFile(
+      path.join(chunkDir, 'chunks.json'),
+      JSON.stringify(chunksJson, null, 2),
+      'utf-8'
+    );
+    this.logger.debug({ chunkDir }, 'チャンク情報を保存しました');
 
     // 音声を結合（ffmpegを使用してメタデータも正しく設定）
     const tempDir = path.join(this.config.output.audioDir, '.temp');
@@ -719,5 +761,54 @@ export class Pipeline {
         error: message,
       };
     }
+  }
+
+  // チャンク情報を取得
+  async getChunks(scriptId: string): Promise<{
+    scriptId: string;
+    scriptTitle: string;
+    generatedAt: string;
+    totalChunks: number;
+    chunks: {
+      index: number;
+      text: string;
+      audioFile: string;
+      audioSize: number;
+      isSmall: boolean;
+    }[];
+  } | null> {
+    const chunksJsonPath = path.join(this.config.output.chunksDir, scriptId, 'chunks.json');
+    try {
+      const content = await fs.readFile(chunksJsonPath, 'utf-8');
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+
+  // チャンクディレクトリのパスを取得
+  getChunksDir(): string {
+    return this.config.output.chunksDir;
+  }
+
+  // 台本全文を取得
+  async getScriptContent(scriptId: string): Promise<string | null> {
+    const scriptPath = path.join(this.config.output.scriptsDir, `${scriptId}.txt`);
+    try {
+      return await fs.readFile(scriptPath, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  // ピックアップ済み記事一覧を取得
+  getProcessedArticles(): {
+    id: string;
+    url: string;
+    title: string;
+    processedAt: string;
+    episodeId?: string;
+  }[] {
+    return this.storage.getProcessedArticles();
   }
 }
