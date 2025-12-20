@@ -22,17 +22,18 @@ export function splitText(text: string, options: SplitOptions = {}): string[] {
   for (const paragraph of paragraphs) {
     // 段落が単独でチャンクサイズを超える場合は、さらに分割
     if (paragraph.length > maxChunkSize) {
-      const sentences = paragraph.split(/[。．！？]/).filter((s) => s.trim().length > 0);
+      // 後読みアサーションで句読点を保持して分割
+      const sentences = paragraph.split(/(?<=[。．！？])/).filter((s) => s.trim().length > 0);
       for (const sentence of sentences) {
         if (currentChunk.length + sentence.length > maxChunkSize) {
           if (currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
             currentChunk = '';
           }
-          // 長い文章は単独でチャンクにする
+          // 長い文章は単独でチャンクにする（句読点は既に含まれている）
           chunks.push(sentence.trim());
         } else {
-          currentChunk += sentence + '。';
+          currentChunk += sentence;
         }
       }
     } else if (currentChunk.length + paragraph.length > maxChunkSize) {
