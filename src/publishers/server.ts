@@ -555,16 +555,67 @@ function getDashboardHtml(canGenerate: boolean): string {
       font-size: 0.9rem;
     }
     .script-id { font-size: 0.75rem; color: #a08060; }
-    .script-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .script-actions { display: flex; gap: 0.5rem; flex-shrink: 0; align-items: center; }
     .script-actions button, .script-actions a {
       padding: 0.4rem 0.8rem;
       font-size: 0.8rem;
       width: auto;
       text-decoration: none;
       display: inline-flex;
-      align-items: center;
-      justify-content: center;
     }
+    /* ドロップダウンメニュー */
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .dropdown-toggle {
+      background: linear-gradient(135deg, #9e9e9e 0%, #757575 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 0.4rem 0.6rem;
+      font-size: 1rem;
+      cursor: pointer;
+      min-width: 32px;
+    }
+    .dropdown-toggle:hover {
+      background: linear-gradient(135deg, #757575 0%, #616161 100%);
+    }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+      min-width: 160px;
+      z-index: 100;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .dropdown-menu.show { display: block; }
+    .dropdown-menu button, .dropdown-menu a {
+      display: block;
+      width: 100%;
+      padding: 0.6rem 1rem;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: 0;
+      color: #5c4033;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: none;
+    }
+    .dropdown-menu button:hover, .dropdown-menu a:hover {
+      background: #f5ebe0;
+      transform: none;
+      box-shadow: none;
+    }
+    .dropdown-menu .danger { color: #d32f2f; }
+    .dropdown-menu .danger:hover { background: #ffebee; }
     .script-actions a {
       background: linear-gradient(135deg, #7cb342 0%, #689f38 100%);
       color: white;
@@ -997,23 +1048,35 @@ function getDashboardHtml(canGenerate: boolean): string {
 
         list.innerHTML = data.scripts.map(script => {
           const date = new Date(script.createdAt).toLocaleDateString('ja-JP');
-          let actions = '<button class="btn-script" onclick="showScript(\\'' + script.id + '\\')">📝 台本</button>' +
-            '<button class="btn-articles" onclick="showEpisodeArticles(\\'' + script.id + '\\', \\'' + escapeHtml(script.title) + '\\')">📰 記事</button>';
+          const escapedTitle = escapeHtml(script.title).replace(/'/g, "\\'");
+
+          // 主要アクション
+          let mainActions = '<button class="btn-script" onclick="showScript(\\'' + script.id + '\\')">📝 台本</button>';
           if (script.hasAudio) {
-            actions += '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>' +
-              '<button class="btn-chunks" onclick="showChunks(\\'' + script.id + '\\')">📊 チャンク</button>' +
-              '<button class="btn-secondary" onclick="deleteAudio(\\'' + script.id + '\\')">🔄 再生成</button>';
+            mainActions += '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>';
           } else {
-            actions += '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
+            mainActions += '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
           }
-          actions += '<button class="btn-danger" onclick="deleteScript(\\'' + script.id + '\\')">🗑️</button>';
+
+          // ドロップダウンメニュー
+          let dropdownItems = '<button onclick="showEpisodeArticles(\\'' + script.id + '\\', \\'' + escapedTitle + '\\'); closeDropdowns();">📰 記事一覧</button>';
+          if (script.hasAudio) {
+            dropdownItems += '<button onclick="showChunks(\\'' + script.id + '\\'); closeDropdowns();">📊 チャンク詳細</button>' +
+              '<button onclick="deleteAudio(\\'' + script.id + '\\'); closeDropdowns();">🔄 音声を再生成</button>';
+          }
+          dropdownItems += '<button class="danger" onclick="deleteScript(\\'' + script.id + '\\'); closeDropdowns();">🗑️ 削除</button>';
 
           return '<div class="script-item">' +
             '<div class="script-info">' +
               '<div class="script-title">' + escapeHtml(script.title) + '</div>' +
               '<div class="script-id">' + script.id + ' (' + date + ')' + (script.hasAudio ? ' ✅' : '') + '</div>' +
             '</div>' +
-            '<div class="script-actions">' + actions + '</div>' +
+            '<div class="script-actions">' + mainActions +
+              '<div class="dropdown">' +
+                '<button class="dropdown-toggle" onclick="toggleDropdown(this)">⋮</button>' +
+                '<div class="dropdown-menu">' + dropdownItems + '</div>' +
+              '</div>' +
+            '</div>' +
           '</div>';
         }).join('');
 
@@ -1124,6 +1187,29 @@ function getDashboardHtml(canGenerate: boolean): string {
       div.textContent = text;
       return div.innerHTML;
     }
+
+    // ドロップダウンメニュー制御
+    function toggleDropdown(button) {
+      const menu = button.nextElementSibling;
+      const isOpen = menu.classList.contains('show');
+      closeDropdowns();
+      if (!isOpen) {
+        menu.classList.add('show');
+      }
+    }
+
+    function closeDropdowns() {
+      document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
+        menu.classList.remove('show');
+      });
+    }
+
+    // 画面のどこかをクリックしたらドロップダウンを閉じる
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.dropdown')) {
+        closeDropdowns();
+      }
+    });
 
     // ログビューア機能
     let logEntries = [];
