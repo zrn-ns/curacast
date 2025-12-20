@@ -8,6 +8,7 @@ dist/
 output/
 data/processed.json
 data/profile.yaml
+data/opening-topic-history.json
 
 # 環境変数
 .env
