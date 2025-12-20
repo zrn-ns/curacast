@@ -49,11 +49,16 @@ collectors:
     minPoints: 100
     maxArticles: 15
 
-# LLM設定（記事選定・台本生成用）
+# LLM設定（記事選定用）
 llm:
   provider: "gemini"  # 'gemini' または 'openai'
   model: "gemini-2.0-flash"
   # apiKey: ${GEMINI_API_KEY}  # 環境変数から自動取得
+
+# 台本生成専用LLM設定（省略時はllmの設定を使用）
+llmScript:
+  provider: "gemini"
+  model: "gemini-2.5-pro"  # 高品質な台本生成のためProモデルを使用
 
 # TTS設定
 tts:

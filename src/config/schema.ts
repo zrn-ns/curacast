@@ -69,12 +69,20 @@ const loggingSchema = z.object({
   level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 
+// 台本生成専用LLM設定（指定がなければllmにフォールバック）
+const llmScriptSchema = z.object({
+  provider: z.enum(['gemini', 'openai']),
+  model: z.string(),
+  apiKey: z.string().optional(),
+}).optional();
+
 // メイン設定スキーマ
 export const configSchema = z.object({
   mode: z.enum(['batch', 'watch', 'once']).default('batch'),
   schedule: scheduleSchema.default({}),
   collectors: collectorsSchema.default({}),
   llm: llmSchema.default({}),
+  llmScript: llmScriptSchema,  // 台本生成専用（省略時はllmを使用）
   tts: ttsSchema.default({}),
   server: serverSchema.default({}),
   output: outputSchema.default({}),

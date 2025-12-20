@@ -126,11 +126,12 @@ export class Pipeline {
         return { success: true, articleCount: 0 };
       }
 
-      // 5. 台本生成
+      // 5. 台本生成（llmScriptがあればそれを使用、なければllmにフォールバック）
+      const scriptLlmConfig = this.config.llmScript ?? this.config.llm;
       const generator = new LLMScriptGenerator({
-        provider: this.config.llm.provider,
-        model: this.config.llm.model,
-        apiKey: this.config.llm.apiKey ?? '',
+        provider: scriptLlmConfig.provider,
+        model: scriptLlmConfig.model,
+        apiKey: scriptLlmConfig.apiKey ?? this.config.llm.apiKey ?? '',
       });
       const script = await generator.generateWithContent(articlesWithContent, this.profile);
       this.logger.info({ scriptId: script.id, title: script.title }, '台本を生成しました');
