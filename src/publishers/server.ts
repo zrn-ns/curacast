@@ -1,7 +1,14 @@
 import express, { type Express } from 'express';
 import type { RSSFeedPublisher } from './rss-feed.js';
 import type { Pipeline } from '../pipeline/index.js';
-import { getLogger } from '../utils/logger.js';
+import {
+  getLogger,
+  getLogBuffer,
+  clearLogBuffer,
+  subscribeToLogs,
+  getSubscriberCount,
+  type LogEntry,
+} from '../utils/logger.js';
 
 export interface ServerConfig {
   port: number;
@@ -272,6 +279,124 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // ログ一覧取得エンドポイント
+  app.get('/logs', (_req, res) => {
+    const logs = getLogBuffer();
+    res.json({
+      logs,
+      subscriberCount: getSubscriberCount(),
+    });
+  });
+
+  // ログクリアエンドポイント
+  app.post('/logs/clear', (_req, res) => {
+    clearLogBuffer();
+    logger.info('ログバッファをクリアしました');
+    res.json({ success: true });
+  });
+
+  // ログストリーミング（SSE）エンドポイント
+  app.get('/logs/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // nginx向け
+
+    // 接続確立メッセージ
+    res.write(`data: ${JSON.stringify({ type: 'connected', time: Date.now() })}\n\n`);
+
+    // 新しいログを受け取ったらクライアントに送信
+    const unsubscribe = subscribeToLogs((log: LogEntry) => {
+      try {
+        res.write(`data: ${JSON.stringify({ type: 'log', ...log })}\n\n`);
+      } catch {
+        // 書き込みエラーは無視（クライアント切断時など）
+      }
+    });
+
+    // ハートビート（30秒ごと）
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: heartbeat\n\n`);
+      } catch {
+        // 書き込みエラーは無視
+      }
+    }, 30000);
+
+    // クライアント切断時のクリーンアップ
+    req.on('close', () => {
+      unsubscribe();
+      clearInterval(heartbeat);
+    });
+  });
+
+  // チャンク情報取得エンドポイント
+  app.get('/scripts/:id/chunks', async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    try {
+      const chunks = await config.pipeline.getChunks(scriptId);
+      if (!chunks) {
+        res.status(404).json({ error: 'チャンク情報が見つかりません' });
+        return;
+      }
+      res.json(chunks);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, 'チャンク情報取得エラー');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // チャンク音声配信（静的ファイル）
+  if (config.pipeline) {
+    const chunksDir = config.pipeline.getChunksDir();
+    app.use('/chunks', express.static(chunksDir));
+  }
+
+  // 台本全文取得エンドポイント
+  app.get('/scripts/:id/content', async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    try {
+      const content = await config.pipeline.getScriptContent(scriptId);
+      if (!content) {
+        res.status(404).json({ error: '台本が見つかりません' });
+        return;
+      }
+      res.json({ scriptId, content });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, '台本取得エラー');
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // ピックアップ済み記事一覧エンドポイント
+  app.get('/articles', (_req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    try {
+      const articles = config.pipeline.getProcessedArticles();
+      res.json({ articles });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, '記事一覧取得エラー');
+      res.status(500).json({ error: message });
+    }
+  });
+
   return app;
 }
 
@@ -429,6 +554,202 @@ function getDashboardHtml(canGenerate: boolean): string {
       box-shadow: 0 2px 8px rgba(124, 179, 66, 0.3);
     }
     .empty-message { color: #a08060; font-size: 0.9rem; text-align: center; padding: 1rem; }
+    /* ログビューア */
+    .log-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .log-filters { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+    .log-filter {
+      padding: 0.3rem 0.6rem;
+      border: 1px solid #d4a574;
+      border-radius: 4px;
+      background: white;
+      color: #8b5a2b;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+    .log-filter.active { background: #d4a574; color: white; }
+    .log-filter:hover { background: #f5ebe0; }
+    .log-filter.active:hover { background: #c4956a; }
+    .log-search {
+      flex: 1;
+      min-width: 150px;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid #d4a574;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+    .log-search:focus { border-color: #8b5a2b; box-shadow: 0 0 0 2px rgba(139, 90, 43, 0.1); }
+    .log-viewer {
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 0.75rem;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.75rem;
+      line-height: 1.4;
+    }
+    .log-entry { padding: 0.2rem 0; border-bottom: 1px solid #333; }
+    .log-entry:last-child { border-bottom: none; }
+    .log-time { color: #888; margin-right: 0.5rem; }
+    .log-level { padding: 0.1rem 0.3rem; border-radius: 3px; margin-right: 0.5rem; font-weight: bold; font-size: 0.7rem; }
+    .log-level.debug { background: #4a4a4a; color: #aaa; }
+    .log-level.info { background: #2d5a2d; color: #7cb342; }
+    .log-level.warn { background: #5a4a2d; color: #ffc107; }
+    .log-level.error { background: #5a2d2d; color: #f44336; }
+    .log-msg { color: #e0e0e0; word-break: break-all; }
+    .log-meta { color: #888; font-size: 0.7rem; margin-left: 0.5rem; }
+    .log-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .log-status { font-size: 0.8rem; color: #a08060; display: flex; align-items: center; gap: 0.5rem; }
+    .log-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #7cb342; }
+    .log-status-dot.disconnected { background: #f44336; }
+    .auto-scroll-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      color: #a08060;
+      cursor: pointer;
+    }
+    .auto-scroll-toggle input { cursor: pointer; }
+    /* チャンクモーダル */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      max-width: 90%;
+      max-height: 90%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .modal-header {
+      padding: 1rem;
+      background: linear-gradient(135deg, #d4a574 0%, #c4956a 100%);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h3 { margin: 0; font-size: 1rem; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0;
+      width: auto;
+      box-shadow: none;
+    }
+    .modal-close:hover { opacity: 0.8; transform: none; }
+    .modal-body {
+      padding: 1rem;
+      overflow-y: auto;
+      max-height: 70vh;
+    }
+    .chunk-list { display: flex; flex-direction: column; gap: 1rem; }
+    .chunk-item {
+      border: 1px solid #e0d5c8;
+      border-radius: 8px;
+      padding: 0.75rem;
+      background: #fef9f3;
+    }
+    .chunk-item.warning {
+      border-color: #ffc107;
+      background: #fff8e1;
+    }
+    .chunk-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .chunk-index { font-weight: bold; color: #8b5a2b; }
+    .chunk-size { font-size: 0.8rem; color: #a08060; }
+    .chunk-size.warning { color: #d32f2f; font-weight: bold; }
+    .chunk-text {
+      background: #1e1e1e;
+      color: #e0e0e0;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      max-height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+    .chunk-audio {
+      margin-top: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .chunk-audio audio { flex: 1; height: 32px; }
+    .btn-chunks {
+      background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+      box-shadow: 0 2px 8px rgba(156, 39, 176, 0.3);
+    }
+    .btn-chunks:hover { box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4); }
+    .btn-script {
+      background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+      box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+    }
+    .btn-script:hover { box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4); }
+    /* 記事一覧 */
+    .article-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 300px; overflow-y: auto; }
+    .article-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem;
+      background: rgba(212, 165, 116, 0.1);
+      border-radius: 6px;
+      gap: 0.5rem;
+    }
+    .article-info { flex: 1; min-width: 0; }
+    .article-title {
+      font-size: 0.85rem;
+      color: #5c4033;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .article-meta { font-size: 0.7rem; color: #a08060; }
+    .article-link {
+      color: #8b5a2b;
+      text-decoration: none;
+      font-size: 0.8rem;
+      flex-shrink: 0;
+    }
+    .article-link:hover { text-decoration: underline; }
+    /* 台本モーダル */
+    .script-content {
+      background: #fef9f3;
+      padding: 1rem;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      font-size: 0.9rem;
+      line-height: 1.8;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
@@ -486,6 +807,41 @@ function getDashboardHtml(canGenerate: boolean): string {
         <div class="empty-message">読み込み中...</div>
       </div>
       <div class="message" id="scriptMessage"></div>
+    </div>
+
+    <div class="card">
+      <h2>ピックアップ済み記事</h2>
+      <div class="article-list" id="articleList">
+        <div class="empty-message">読み込み中...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>実行ログ</h2>
+      <div class="log-controls">
+        <div class="log-filters">
+          <button class="log-filter active" data-level="all">ALL</button>
+          <button class="log-filter active" data-level="debug">DEBUG</button>
+          <button class="log-filter active" data-level="info">INFO</button>
+          <button class="log-filter active" data-level="warn">WARN</button>
+          <button class="log-filter active" data-level="error">ERROR</button>
+        </div>
+        <input type="text" class="log-search" id="logSearch" placeholder="検索...">
+      </div>
+      <div class="log-viewer" id="logViewer">
+        <div class="empty-message">ログを読み込み中...</div>
+      </div>
+      <div class="log-actions">
+        <div class="log-status">
+          <span class="log-status-dot" id="logStatusDot"></span>
+          <span id="logStatusText">接続中...</span>
+        </div>
+        <label class="auto-scroll-toggle">
+          <input type="checkbox" id="autoScroll" checked>
+          自動スクロール
+        </label>
+        <button class="btn-small btn-secondary" onclick="clearLogs()">クリア</button>
+      </div>
     </div>
     ` : ''}
   </div>
@@ -618,12 +974,13 @@ function getDashboardHtml(canGenerate: boolean): string {
 
         list.innerHTML = data.scripts.map(script => {
           const date = new Date(script.createdAt).toLocaleDateString('ja-JP');
-          let actions = '';
+          let actions = '<button class="btn-script" onclick="showScript(\\'' + script.id + '\\')">📝 台本</button>';
           if (script.hasAudio) {
-            actions = '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>' +
+            actions += '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>' +
+              '<button class="btn-chunks" onclick="showChunks(\\'' + script.id + '\\')">📊 チャンク</button>' +
               '<button class="btn-secondary" onclick="deleteAudio(\\'' + script.id + '\\')">🔄 再生成</button>';
           } else {
-            actions = '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
+            actions += '<button onclick="generateAudioFromScript(\\'' + script.id + '\\')">🔊 音声生成</button>';
           }
           actions += '<button class="btn-danger" onclick="deleteScript(\\'' + script.id + '\\')">🗑️</button>';
 
@@ -744,13 +1101,350 @@ function getDashboardHtml(canGenerate: boolean): string {
       return div.innerHTML;
     }
 
+    // ログビューア機能
+    let logEntries = [];
+    let eventSource = null;
+    let activeFilters = new Set(['debug', 'info', 'warn', 'error']);
+    let searchQuery = '';
+
+    function formatLogTime(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString('ja-JP', { hour12: false });
+    }
+
+    function formatLogMeta(log) {
+      const meta = [];
+      for (const [key, value] of Object.entries(log)) {
+        if (['level', 'levelLabel', 'time', 'msg', 'type'].includes(key)) continue;
+        if (typeof value === 'object') {
+          meta.push(key + '=' + JSON.stringify(value));
+        } else {
+          meta.push(key + '=' + value);
+        }
+      }
+      return meta.length > 0 ? ' ' + meta.join(' ') : '';
+    }
+
+    function createLogEntryHtml(log) {
+      const time = formatLogTime(log.time);
+      const level = log.levelLabel || 'info';
+      const msg = escapeHtml(log.msg || '');
+      const meta = escapeHtml(formatLogMeta(log));
+      return '<div class="log-entry" data-level="' + level + '">' +
+        '<span class="log-time">' + time + '</span>' +
+        '<span class="log-level ' + level + '">' + level.toUpperCase() + '</span>' +
+        '<span class="log-msg">' + msg + '</span>' +
+        (meta ? '<span class="log-meta">' + meta + '</span>' : '') +
+        '</div>';
+    }
+
+    function renderLogs() {
+      const viewer = document.getElementById('logViewer');
+      const filtered = logEntries.filter(log => {
+        // レベルフィルター
+        const level = log.levelLabel || 'info';
+        if (!activeFilters.has(level)) return false;
+        // 検索フィルター
+        if (searchQuery) {
+          const text = (log.msg || '') + formatLogMeta(log);
+          if (!text.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        viewer.innerHTML = '<div class="empty-message">ログがありません</div>';
+        return;
+      }
+
+      viewer.innerHTML = filtered.map(createLogEntryHtml).join('');
+
+      // 自動スクロール
+      if (document.getElementById('autoScroll').checked) {
+        viewer.scrollTop = viewer.scrollHeight;
+      }
+    }
+
+    function addLogEntry(log) {
+      logEntries.push(log);
+      // 最大500件に制限
+      if (logEntries.length > 500) {
+        logEntries.shift();
+      }
+      renderLogs();
+    }
+
+    async function loadExistingLogs() {
+      try {
+        const res = await fetch('/logs');
+        const data = await res.json();
+        logEntries = data.logs || [];
+        renderLogs();
+      } catch {
+        document.getElementById('logViewer').innerHTML = '<div class="empty-message">ログの読み込みに失敗しました</div>';
+      }
+    }
+
+    function connectLogStream() {
+      const statusDot = document.getElementById('logStatusDot');
+      const statusText = document.getElementById('logStatusText');
+
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      eventSource = new EventSource('/logs/stream');
+
+      eventSource.onopen = function() {
+        statusDot.classList.remove('disconnected');
+        statusText.textContent = '接続中';
+      };
+
+      eventSource.onmessage = function(e) {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'connected') {
+            // 接続確立
+            return;
+          }
+          if (data.type === 'log') {
+            addLogEntry(data);
+          }
+        } catch {
+          // パースエラーは無視
+        }
+      };
+
+      eventSource.onerror = function() {
+        statusDot.classList.add('disconnected');
+        statusText.textContent = '切断（再接続中...）';
+        // 自動再接続はEventSourceが行う
+      };
+    }
+
+    async function clearLogs() {
+      if (!confirm('ログをクリアしますか？')) return;
+      try {
+        await fetch('/logs/clear', { method: 'POST' });
+        logEntries = [];
+        renderLogs();
+      } catch {
+        alert('ログのクリアに失敗しました');
+      }
+    }
+
+    // 初期化
+    if (document.getElementById('logViewer')) {
+      loadExistingLogs();
+      connectLogStream();
+
+      // フィルターボタンのイベント
+      document.querySelectorAll('.log-filter').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const level = this.dataset.level;
+          if (level === 'all') {
+            const allActive = activeFilters.size === 4;
+            if (allActive) {
+              activeFilters.clear();
+              document.querySelectorAll('.log-filter').forEach(b => b.classList.remove('active'));
+            } else {
+              activeFilters = new Set(['debug', 'info', 'warn', 'error']);
+              document.querySelectorAll('.log-filter').forEach(b => b.classList.add('active'));
+            }
+          } else {
+            if (activeFilters.has(level)) {
+              activeFilters.delete(level);
+              this.classList.remove('active');
+            } else {
+              activeFilters.add(level);
+              this.classList.add('active');
+            }
+            const allBtn = document.querySelector('.log-filter[data-level="all"]');
+            if (activeFilters.size === 4) {
+              allBtn.classList.add('active');
+            } else {
+              allBtn.classList.remove('active');
+            }
+          }
+          renderLogs();
+        });
+      });
+
+      // 検索フィールドのイベント
+      document.getElementById('logSearch').addEventListener('input', function() {
+        searchQuery = this.value;
+        renderLogs();
+      });
+    }
+
+    // チャンクモーダル関連
+    async function showChunks(scriptId) {
+      const modal = document.getElementById('chunkModal');
+      const title = document.getElementById('chunkModalTitle');
+      const body = document.getElementById('chunkModalBody');
+
+      title.textContent = 'チャンク情報を読み込み中...';
+      body.innerHTML = '<div class="empty-message">読み込み中...</div>';
+      modal.classList.add('active');
+
+      try {
+        const res = await fetch('/scripts/' + scriptId + '/chunks');
+        if (!res.ok) {
+          if (res.status === 404) {
+            body.innerHTML = '<div class="empty-message">チャンク情報がありません（音声生成前または古いエピソード）</div>';
+            title.textContent = 'チャンク情報なし';
+            return;
+          }
+          throw new Error('取得失敗');
+        }
+        const data = await res.json();
+        title.textContent = data.scriptTitle + ' (' + data.totalChunks + 'チャンク)';
+
+        if (!data.chunks || data.chunks.length === 0) {
+          body.innerHTML = '<div class="empty-message">チャンクがありません</div>';
+          return;
+        }
+
+        body.innerHTML = '<div class="chunk-list">' + data.chunks.map(chunk => {
+          const warningClass = chunk.isSmall ? ' warning' : '';
+          const sizeClass = chunk.isSmall ? ' warning' : '';
+          return '<div class="chunk-item' + warningClass + '">' +
+            '<div class="chunk-header">' +
+              '<span class="chunk-index">チャンク ' + chunk.index + '</span>' +
+              '<span class="chunk-size' + sizeClass + '">' +
+                (chunk.isSmall ? '⚠️ ' : '') + chunk.audioSize.toLocaleString() + ' bytes' +
+              '</span>' +
+            '</div>' +
+            '<div class="chunk-text">' + escapeHtml(chunk.text) + '</div>' +
+            '<div class="chunk-audio">' +
+              '<audio controls preload="none" src="/chunks/' + scriptId + '/' + chunk.audioFile + '"></audio>' +
+            '</div>' +
+          '</div>';
+        }).join('') + '</div>';
+      } catch (e) {
+        body.innerHTML = '<div class="empty-message">読み込みエラー</div>';
+        title.textContent = 'エラー';
+      }
+    }
+
+    function closeChunkModal() {
+      document.getElementById('chunkModal').classList.remove('active');
+      // 再生中の音声を停止
+      document.querySelectorAll('#chunkModalBody audio').forEach(a => {
+        a.pause();
+        a.currentTime = 0;
+      });
+    }
+
+    // モーダル外クリックで閉じる
+    document.getElementById('chunkModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeChunkModal();
+    });
+
+    // 台本モーダル関連
+    async function showScript(scriptId) {
+      const modal = document.getElementById('scriptModal');
+      const title = document.getElementById('scriptModalTitle');
+      const body = document.getElementById('scriptModalBody');
+
+      title.textContent = '台本を読み込み中...';
+      body.innerHTML = '<div class="empty-message">読み込み中...</div>';
+      modal.classList.add('active');
+
+      try {
+        const res = await fetch('/scripts/' + scriptId + '/content');
+        if (!res.ok) {
+          if (res.status === 404) {
+            body.innerHTML = '<div class="empty-message">台本が見つかりません</div>';
+            title.textContent = 'エラー';
+            return;
+          }
+          throw new Error('取得失敗');
+        }
+        const data = await res.json();
+        title.textContent = '台本: ' + scriptId;
+        body.innerHTML = '<div class="script-content">' + escapeHtml(data.content) + '</div>';
+      } catch (e) {
+        body.innerHTML = '<div class="empty-message">読み込みエラー</div>';
+        title.textContent = 'エラー';
+      }
+    }
+
+    function closeScriptModal() {
+      document.getElementById('scriptModal').classList.remove('active');
+    }
+
+    // モーダル外クリックで閉じる
+    document.getElementById('scriptModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeScriptModal();
+    });
+
+    // 記事一覧読み込み
+    async function loadArticles() {
+      const list = document.getElementById('articleList');
+      if (!list) return;
+
+      try {
+        const res = await fetch('/articles');
+        const data = await res.json();
+
+        if (!data.articles || data.articles.length === 0) {
+          list.innerHTML = '<div class="empty-message">ピックアップ済み記事がありません</div>';
+          return;
+        }
+
+        // 最新20件のみ表示
+        const articles = data.articles.slice(0, 20);
+        list.innerHTML = articles.map(article => {
+          const date = new Date(article.processedAt).toLocaleDateString('ja-JP');
+          return '<div class="article-item">' +
+            '<div class="article-info">' +
+              '<div class="article-title">' + escapeHtml(article.title) + '</div>' +
+              '<div class="article-meta">' + date + (article.episodeId ? ' / ' + article.episodeId : '') + '</div>' +
+            '</div>' +
+            '<a class="article-link" href="' + escapeHtml(article.url) + '" target="_blank">🔗 元記事</a>' +
+          '</div>';
+        }).join('');
+      } catch {
+        list.innerHTML = '<div class="empty-message">読み込みエラー</div>';
+      }
+    }
+
     checkStatus();
     loadStats();
     loadScripts();
+    loadArticles();
     setInterval(checkStatus, 5000);
     setInterval(loadStats, 10000);
     setInterval(loadScripts, 10000);
+    setInterval(loadArticles, 30000);
   </script>
+
+  <!-- チャンクモーダル -->
+  <div class="modal-overlay" id="chunkModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="chunkModalTitle">チャンク情報</h3>
+        <button class="modal-close" onclick="closeChunkModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="chunkModalBody">
+        <div class="empty-message">読み込み中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 台本モーダル -->
+  <div class="modal-overlay" id="scriptModal">
+    <div class="modal" style="width: 90%; max-width: 800px;">
+      <div class="modal-header">
+        <h3 id="scriptModalTitle">台本</h3>
+        <button class="modal-close" onclick="closeScriptModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="scriptModalBody">
+        <div class="empty-message">読み込み中...</div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>`;
 }
