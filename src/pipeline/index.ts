@@ -20,6 +20,19 @@ interface ArticleWithContent extends Article {
   fetchedContent?: string;
 }
 
+// エピソードメタデータ（台本と一緒に保存）
+export interface EpisodeMetadata {
+  id: string;
+  title: string;
+  createdAt: string;
+  articles: Array<{
+    id: string;
+    url: string;
+    title: string;
+    source: string;
+  }>;
+}
+
 export interface PipelineResult {
   success: boolean;
   episodeId?: string;
@@ -344,7 +357,23 @@ export class Pipeline {
     const fileName = `${script.id}.txt`;
     const filePath = path.join(this.config.output.scriptsDir, fileName);
     await fs.writeFile(filePath, script.content, 'utf-8');
-    this.logger.debug({ path: filePath }, '台本を保存しました');
+
+    // メタデータを保存
+    const metadata: EpisodeMetadata = {
+      id: script.id,
+      title: script.title,
+      createdAt: script.generatedAt.toISOString(),
+      articles: script.articles.map((a) => ({
+        id: a.id,
+        url: a.url,
+        title: a.title,
+        source: a.sourceName ?? a.source,
+      })),
+    };
+    const metaFilePath = path.join(this.config.output.scriptsDir, `${script.id}.meta.json`);
+    await fs.writeFile(metaFilePath, JSON.stringify(metadata, null, 2), 'utf-8');
+
+    this.logger.debug({ path: filePath, metaPath: metaFilePath }, '台本とメタデータを保存しました');
     return filePath;
   }
 
@@ -530,14 +559,16 @@ export class Pipeline {
       }
     }
 
-    // 台本ファイルを削除
+    // 台本ファイルとメタデータを削除
     try {
       const scriptsDir = this.config.output.scriptsDir;
       const files = await fs.readdir(scriptsDir);
       for (const file of files) {
-        if (file.endsWith('.txt')) {
+        if (file.endsWith('.txt') || file.endsWith('.meta.json')) {
           await fs.unlink(path.join(scriptsDir, file));
-          scriptFiles++;
+          if (file.endsWith('.txt')) {
+            scriptFiles++;
+          }
         }
       }
     } catch (error) {
@@ -556,6 +587,7 @@ export class Pipeline {
   // 特定の台本と音声を削除
   async deleteScript(scriptId: string): Promise<{ scriptDeleted: boolean; audioDeleted: boolean; feedUpdated: boolean }> {
     const scriptPath = path.join(this.config.output.scriptsDir, `${scriptId}.txt`);
+    const metaPath = path.join(this.config.output.scriptsDir, `${scriptId}.meta.json`);
     const audioPath = path.join(this.config.output.audioDir, `${scriptId}.mp3`);
 
     let scriptDeleted = false;
@@ -566,6 +598,16 @@ export class Pipeline {
       await fs.unlink(scriptPath);
       scriptDeleted = true;
       this.logger.debug({ scriptId }, '台本ファイルを削除しました');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    // メタデータファイルを削除
+    try {
+      await fs.unlink(metaPath);
+      this.logger.debug({ scriptId }, 'メタデータファイルを削除しました');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
@@ -647,24 +689,27 @@ export class Pipeline {
     const scripts = await Promise.all(
       scriptFiles.map(async (file) => {
         const id = file.replace('.txt', '');
-        const scriptPath = path.join(scriptsDir, file);
+        const metaPath = path.join(scriptsDir, `${id}.meta.json`);
         const audioPath = path.join(audioDir, `${id}.mp3`);
 
-        // タイトルを台本の最初の行から取得（または日付から生成）
+        // メタデータファイルからタイトルと生成日時を取得
         let title = `エピソード ${id}`;
+        let createdAt = new Date();
+
         try {
-          const content = await fs.readFile(scriptPath, 'utf-8');
-          const lines = content.split('\n').filter((l) => l.trim());
-          // 「今日のテーマは」で始まる行を探す
-          const themeLine = lines.find((l) => l.includes('今日のテーマは'));
-          if (themeLine) {
-            const match = themeLine.match(/「(.+?)」/);
-            if (match?.[1]) {
-              title = match[1];
-            }
-          }
+          const metaContent = await fs.readFile(metaPath, 'utf-8');
+          const metadata = JSON.parse(metaContent) as EpisodeMetadata;
+          title = metadata.title;
+          createdAt = new Date(metadata.createdAt);
         } catch {
-          // タイトル取得に失敗した場合はデフォルト値を使用
+          // メタデータファイルがない場合（既存の台本）はファイルの作成日時を使用
+          const scriptPath = path.join(scriptsDir, file);
+          try {
+            const stat = await fs.stat(scriptPath);
+            createdAt = stat.birthtime;
+          } catch {
+            // 日時取得に失敗した場合は現在時刻を使用
+          }
         }
 
         // 音声ファイルが存在するかチェック
@@ -674,15 +719,6 @@ export class Pipeline {
           hasAudio = true;
         } catch {
           hasAudio = false;
-        }
-
-        // ファイルの作成日時を取得
-        let createdAt = new Date();
-        try {
-          const stat = await fs.stat(scriptPath);
-          createdAt = stat.birthtime;
-        } catch {
-          // 日時取得に失敗した場合は現在時刻を使用
         }
 
         return { id, title, hasAudio, createdAt };
