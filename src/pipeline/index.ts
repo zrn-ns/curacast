@@ -811,4 +811,15 @@ export class Pipeline {
   }[] {
     return this.storage.getProcessedArticles();
   }
+
+  // エピソードに紐づく記事一覧を取得
+  getArticlesByEpisode(episodeId: string): {
+    id: string;
+    url: string;
+    title: string;
+    processedAt: string;
+    episodeId?: string;
+  }[] {
+    return this.storage.getArticlesByEpisode(episodeId);
+  }
 }

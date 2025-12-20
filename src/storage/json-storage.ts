@@ -96,6 +96,13 @@ export class JsonStorage {
     );
   }
 
+  // エピソードに紐づく記事一覧を取得
+  getArticlesByEpisode(episodeId: string): ProcessedArticle[] {
+    return this.data.processedArticles
+      .filter((a) => a.episodeId === episodeId)
+      .sort((a, b) => new Date(a.processedAt).getTime() - new Date(b.processedAt).getTime());
+  }
+
   // 古い処理済み記事を削除（保持期間を過ぎたもの）
   async cleanup(retentionDays: number = 30): Promise<number> {
     const cutoffDate = new Date();

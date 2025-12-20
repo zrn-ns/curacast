@@ -380,6 +380,24 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // エピソードに紐づく記事一覧エンドポイント
+  app.get('/scripts/:id/articles', (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const scriptId = req.params.id;
+    try {
+      const articles = config.pipeline.getArticlesByEpisode(scriptId);
+      res.json({ scriptId, articles, count: articles.length });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message, scriptId }, 'エピソード記事取得エラー');
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ピックアップ済み記事一覧エンドポイント
   app.get('/articles', (_req, res) => {
     if (!config.pipeline) {
@@ -712,6 +730,11 @@ function getDashboardHtml(canGenerate: boolean): string {
       box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
     }
     .btn-script:hover { box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4); }
+    .btn-articles {
+      background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+      box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+    }
+    .btn-articles:hover { box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4); }
     /* 記事一覧 */
     .article-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 300px; overflow-y: auto; }
     .article-item {
@@ -974,7 +997,8 @@ function getDashboardHtml(canGenerate: boolean): string {
 
         list.innerHTML = data.scripts.map(script => {
           const date = new Date(script.createdAt).toLocaleDateString('ja-JP');
-          let actions = '<button class="btn-script" onclick="showScript(\\'' + script.id + '\\')">📝 台本</button>';
+          let actions = '<button class="btn-script" onclick="showScript(\\'' + script.id + '\\')">📝 台本</button>' +
+            '<button class="btn-articles" onclick="showEpisodeArticles(\\'' + script.id + '\\', \\'' + escapeHtml(script.title) + '\\')">📰 記事</button>';
           if (script.hasAudio) {
             actions += '<a href="/audio/' + script.id + '.mp3" target="_blank">🎧 再生</a>' +
               '<button class="btn-chunks" onclick="showChunks(\\'' + script.id + '\\')">📊 チャンク</button>' +
@@ -1379,6 +1403,54 @@ function getDashboardHtml(canGenerate: boolean): string {
       if (e.target === this) closeScriptModal();
     });
 
+    // エピソード記事一覧モーダル関連
+    async function showEpisodeArticles(scriptId, scriptTitle) {
+      const modal = document.getElementById('episodeArticlesModal');
+      const title = document.getElementById('episodeArticlesModalTitle');
+      const body = document.getElementById('episodeArticlesModalBody');
+
+      title.textContent = '読み込み中...';
+      body.innerHTML = '<div class="empty-message">読み込み中...</div>';
+      modal.classList.add('active');
+
+      try {
+        const res = await fetch('/scripts/' + scriptId + '/articles');
+        if (!res.ok) {
+          throw new Error('取得失敗');
+        }
+        const data = await res.json();
+        title.textContent = scriptTitle + ' (' + data.count + '件)';
+
+        if (!data.articles || data.articles.length === 0) {
+          body.innerHTML = '<div class="empty-message">この台本に紐づく記事がありません</div>';
+          return;
+        }
+
+        body.innerHTML = '<div class="article-list" style="max-height: none;">' + data.articles.map(article => {
+          const date = new Date(article.processedAt).toLocaleDateString('ja-JP');
+          return '<div class="article-item">' +
+            '<div class="article-info">' +
+              '<div class="article-title">' + escapeHtml(article.title) + '</div>' +
+              '<div class="article-meta">' + date + '</div>' +
+            '</div>' +
+            '<a class="article-link" href="' + escapeHtml(article.url) + '" target="_blank">🔗 元記事</a>' +
+          '</div>';
+        }).join('') + '</div>';
+      } catch (e) {
+        body.innerHTML = '<div class="empty-message">読み込みエラー</div>';
+        title.textContent = 'エラー';
+      }
+    }
+
+    function closeEpisodeArticlesModal() {
+      document.getElementById('episodeArticlesModal').classList.remove('active');
+    }
+
+    // モーダル外クリックで閉じる
+    document.getElementById('episodeArticlesModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeEpisodeArticlesModal();
+    });
+
     // 記事一覧読み込み
     async function loadArticles() {
       const list = document.getElementById('articleList');
@@ -1441,6 +1513,19 @@ function getDashboardHtml(canGenerate: boolean): string {
         <button class="modal-close" onclick="closeScriptModal()">&times;</button>
       </div>
       <div class="modal-body" id="scriptModalBody">
+        <div class="empty-message">読み込み中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- エピソード記事一覧モーダル -->
+  <div class="modal-overlay" id="episodeArticlesModal">
+    <div class="modal" style="width: 90%; max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="episodeArticlesModalTitle">ピックアップ記事</h3>
+        <button class="modal-close" onclick="closeEpisodeArticlesModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="episodeArticlesModalBody">
         <div class="empty-message">読み込み中...</div>
       </div>
     </div>
