@@ -31,3 +31,6 @@ npm-debug.log*
 
 # テスト
 coverage/
+
+# Playwright
+.playwright-mcp/
