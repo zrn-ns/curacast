@@ -14,15 +14,15 @@ collectors:
     enabled: true
     feeds:
       # ニュース系
-      - name: "NHKニュース"
-        url: "https://www.nhk.or.jp/rss/news/cat0.xml"
-        category: "news"
       - name: "Yahoo!ニュース 主要"
         url: "https://news.yahoo.co.jp/rss/topics/top-picks.xml"
         category: "news"
       - name: "Yahoo!ニュース 経済"
         url: "https://news.yahoo.co.jp/rss/topics/business.xml"
         category: "news"
+      - name: "Yahoo!ニュース IT"
+        url: "https://news.yahoo.co.jp/rss/topics/it.xml"
+        category: "tech"
       # テック系
       - name: "Zenn"
         url: "https://zenn.dev/feed"
@@ -35,6 +35,13 @@ collectors:
         category: "tech"
       - name: "TechCrunch"
         url: "https://techcrunch.com/feed/"
+        category: "tech"
+      # Apple/iOS系
+      - name: "9to5Mac"
+        url: "https://9to5mac.com/feed/"
+        category: "tech"
+      - name: "MacRumors"
+        url: "https://feeds.macrumors.com/MacRumors-All"
         category: "tech"
 
   hatena:
