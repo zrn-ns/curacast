@@ -72,6 +72,9 @@ export class LLMSelector implements Selector {
 
     const customPrompt = profile.customPrompts?.selection ?? '';
 
+    // 出力例で使用する具体的なIDを取得
+    const exampleIds = articles.slice(0, 3).map((a) => a.id);
+
     return `あなたは記事キュレーションのエキスパートです。
 以下のユーザープロファイルに基づいて、記事リストから最も興味深い記事を選定してください。
 
@@ -98,21 +101,30 @@ ${articlesList}
 ## 出力形式
 以下のJSON形式で出力してください。必ず有効なJSONを出力してください。
 記事は優先度が高い順（priority: 1が最高優先度）に並べてください。
+
+【重要】idには各記事の「[ID: xxx]」に記載されている文字列のみを使用してください。
+番号（1, 2, 3...）や「[ID: xxx]」という形式全体ではなく、ID文字列のみを指定してください。
+
+例えば記事リストに「1. [ID: ${exampleIds[0] ?? 'abc123'}]」とある場合、idには「${exampleIds[0] ?? 'abc123'}」のみを指定します。
+
 \`\`\`json
 {
   "selectedArticles": [
     {
-      "id": "各記事の[ID: xxx]に記載されているIDをそのまま使用",
+      "id": "${exampleIds[0] ?? 'abc123'}",
       "priority": 1,
       "reason": "選定理由（日本語で簡潔に）"
+    },
+    {
+      "id": "${exampleIds[1] ?? 'def456'}",
+      "priority": 2,
+      "reason": "選定理由"
     }
   ]
 }
 \`\`\`
 
 重要:
-- idには各記事の「[ID: xxx]」に記載されている文字列をそのまま使用してください（例: "1a2b3c4"）
-- 番号（1, 2, 3...）ではなく、IDフィールドの値を使ってください
 - priorityは1から始まる連番で、1が最も優先度が高いことを示します
 - ユーザーの興味に合致する記事を優先的に選定してください
 - 除外トピック・キーワードに該当する記事は絶対に選ばないでください
@@ -243,8 +255,30 @@ ${articlesList}
       return article;
     }
 
-    // 4. "ID: xxx" 形式で返された場合
-    const idPrefixMatch = inputId.match(/^(?:ID:\s*)?(.+)$/i);
+    // 4. "番号. [ID: xxx]" 形式で返された場合（プロンプトのフォーマットをそのまま返すケース）
+    const listFormatMatch = inputId.match(/^\d+\.\s*\[ID:\s*([^\]]+)\]/i);
+    if (listFormatMatch?.[1]) {
+      const extractedId = listFormatMatch[1].trim();
+      article = articleMap.get(extractedId);
+      if (article) {
+        this.logger.debug({ inputId, actualId: article.id }, 'リストフォーマットからIDを抽出');
+        return article;
+      }
+    }
+
+    // 5. "[ID: xxx]" 形式で返された場合
+    const bracketIdMatch = inputId.match(/\[ID:\s*([^\]]+)\]/i);
+    if (bracketIdMatch?.[1]) {
+      const extractedId = bracketIdMatch[1].trim();
+      article = articleMap.get(extractedId);
+      if (article) {
+        this.logger.debug({ inputId, actualId: article.id }, '角括弧IDフォーマットからIDを抽出');
+        return article;
+      }
+    }
+
+    // 6. "ID: xxx" 形式で返された場合（角括弧なし）
+    const idPrefixMatch = inputId.match(/^ID:\s*(.+)$/i);
     if (idPrefixMatch?.[1]) {
       const extractedId = idPrefixMatch[1].trim();
       article = articleMap.get(extractedId);
@@ -254,7 +288,7 @@ ${articlesList}
       }
     }
 
-    // 5. 部分一致検索（IDの先頭部分が一致する記事を探す）
+    // 7. 部分一致検索（IDの先頭部分が一致する記事を探す）
     for (const a of articles) {
       if (a.id.toLowerCase().startsWith(normalizedId) || normalizedId.startsWith(a.id.toLowerCase())) {
         this.logger.debug({ inputId, actualId: a.id }, '部分一致でマッチ');
@@ -262,7 +296,7 @@ ${articlesList}
       }
     }
 
-    // 6. タイトルの一部がIDとして返された場合（最終手段）
+    // 8. タイトルの一部がIDとして返された場合（最終手段）
     for (const a of articles) {
       if (a.title.includes(inputId) || inputId.includes(a.title.slice(0, 20))) {
         this.logger.debug({ inputId, actualId: a.id, title: a.title }, 'タイトル部分一致でマッチ');
