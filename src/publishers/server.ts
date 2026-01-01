@@ -925,6 +925,21 @@ function getDashboardHtml(canGenerate: boolean): string {
       ></textarea>
       <button id="specialBtn" onclick="generateSpecial()">🎯 特別回を生成</button>
       <div class="message" id="specialMessage"></div>
+      <details style="margin-top: 1rem;">
+        <summary style="cursor: pointer; color: #8b5a2b; font-size: 0.85rem;">🔧 API経由で生成する</summary>
+        <div style="margin-top: 0.5rem; padding: 0.75rem; background: #1e1e1e; border-radius: 8px; font-family: monospace; font-size: 0.75rem; color: #e0e0e0; overflow-x: auto;">
+          <div style="color: #888; margin-bottom: 0.5rem;"># curlでの呼び出し例</div>
+          <div style="white-space: pre-wrap; word-break: break-all;">curl -X POST http://localhost:3000/generate/special \\
+  -H "Content-Type: application/json" \\
+  -d '{"topic": "生成AIの最新動向"}'</div>
+          <div style="color: #888; margin-top: 1rem; margin-bottom: 0.5rem;"># レスポンス例</div>
+          <div style="white-space: pre-wrap;">{
+  "success": true,
+  "episodeId": "20260101-abc123",
+  "episodeTitle": "【2026/01/01】[特別回] 生成AIの最新動向"
+}</div>
+        </div>
+      </details>
     </div>
 
     <div class="card">
