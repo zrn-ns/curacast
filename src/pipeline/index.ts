@@ -31,6 +31,16 @@ export interface EpisodeMetadata {
     title: string;
     source: string;
   }>;
+  // 特別回用フィールド
+  isSpecialEpisode?: boolean;
+  requestedTopic?: string;
+  sources?: string[];
+}
+
+// 特別回オプション
+export interface SpecialEpisodeOptions {
+  topic: string;
+  scriptOnly?: boolean;
 }
 
 export interface PipelineResult {
@@ -220,6 +230,126 @@ export class Pipeline {
         error: message,
       };
     }
+  }
+
+  /**
+   * 特別回（リクエストトピック）のエピソードを生成
+   * Gemini Groundingを使用してGoogle検索で最新情報を取得
+   */
+  async runSpecialEpisode(options: SpecialEpisodeOptions): Promise<PipelineResult> {
+    const { topic, scriptOnly = false } = options;
+
+    try {
+      this.logger.info({ topic, scriptOnly }, '特別回の生成を開始');
+
+      // 1. 台本生成（Grounding使用）
+      const scriptLlmConfig = this.config.llmScript ?? this.config.llm;
+      const generator = new LLMScriptGenerator({
+        provider: scriptLlmConfig.provider,
+        model: scriptLlmConfig.model,
+        apiKey: scriptLlmConfig.apiKey ?? this.config.llm.apiKey ?? '',
+      });
+
+      const script = await generator.generateSpecialEpisode(this.profile, topic);
+      this.logger.info({ scriptId: script.id, title: script.title }, '特別回の台本を生成しました');
+
+      // 2. 台本をファイルに保存
+      const scriptPath = await this.saveSpecialEpisodeScript(script);
+
+      // scriptOnlyモードの場合はここで終了
+      if (scriptOnly) {
+        this.logger.info({ scriptPath }, '特別回（台本のみ）: 音声生成をスキップ');
+        return {
+          success: true,
+          episodeId: script.id,
+          episodeTitle: script.title,
+          scriptPath,
+          articleCount: 0,
+        };
+      }
+
+      // 3. 音声生成
+      const audioPath = await this.generateAudio(script);
+      this.logger.info({ path: audioPath }, '特別回の音声を生成しました');
+
+      // 4. エピソード公開
+      const duration = await getAudioDuration(audioPath);
+      const episode: Episode = {
+        id: script.id,
+        title: script.title,
+        description: this.generateSpecialEpisodeDescription(topic, script.sources ?? []),
+        audioPath,
+        duration,
+        publishedAt: new Date(),
+        script: script.content,
+        articles: [], // 特別回は記事なし
+      };
+
+      await this.feedPublisher.publish(episode);
+      this.logger.info({ episodeId: episode.id }, '特別回のエピソードを公開しました');
+
+      return {
+        success: true,
+        episodeId: episode.id,
+        episodeTitle: episode.title,
+        scriptPath,
+        articleCount: 0,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error({ error: message, topic }, '特別回の生成エラー');
+      return {
+        success: false,
+        articleCount: 0,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * 特別回の台本を保存（メタデータに特別回情報を含める）
+   */
+  private async saveSpecialEpisodeScript(script: Script): Promise<string> {
+    const fileName = `${script.id}.txt`;
+    const filePath = path.join(this.config.output.scriptsDir, fileName);
+    await fs.writeFile(filePath, script.content, 'utf-8');
+
+    // メタデータを保存（特別回情報を含む）
+    const metadata: EpisodeMetadata = {
+      id: script.id,
+      title: script.title,
+      createdAt: script.generatedAt.toISOString(),
+      articles: [],
+      isSpecialEpisode: true,
+      requestedTopic: script.requestedTopic,
+      sources: script.sources,
+    };
+    const metaFilePath = path.join(this.config.output.scriptsDir, `${script.id}.meta.json`);
+    await fs.writeFile(metaFilePath, JSON.stringify(metadata, null, 2), 'utf-8');
+
+    this.logger.debug({ path: filePath, metaPath: metaFilePath }, '特別回の台本とメタデータを保存しました');
+    return filePath;
+  }
+
+  /**
+   * 特別回の説明文を生成
+   */
+  private generateSpecialEpisodeDescription(topic: string, sources: string[]): string {
+    const lines = [
+      `リスナーからのリクエスト特別回: ${topic}`,
+      '',
+      'Google検索で最新情報を調べてお届けしました。',
+    ];
+
+    if (sources.length > 0) {
+      lines.push('');
+      lines.push('参照元:');
+      for (const source of sources.slice(0, 5)) { // 最大5件表示
+        lines.push(`- ${source}`);
+      }
+    }
+
+    return lines.join('\n');
   }
 
   /**

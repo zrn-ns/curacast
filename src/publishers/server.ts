@@ -91,6 +91,58 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
+  // 特別回生成エンドポイント
+  app.post('/generate/special', express.json(), async (req, res) => {
+    if (!config.pipeline) {
+      res.status(503).json({ error: 'パイプラインが設定されていません' });
+      return;
+    }
+
+    const { topic } = req.body as { topic?: string };
+
+    if (!topic || typeof topic !== 'string' || topic.trim().length === 0) {
+      res.status(400).json({ error: 'トピックを指定してください' });
+      return;
+    }
+
+    if (topic.trim().length > 500) {
+      res.status(400).json({ error: 'トピックは500文字以内で指定してください' });
+      return;
+    }
+
+    if (isGenerating) {
+      res.status(409).json({ error: '生成中です。完了までお待ちください' });
+      return;
+    }
+
+    isGenerating = true;
+    logger.info({ topic: topic.trim() }, '特別回の生成を開始します');
+
+    try {
+      const result = await config.pipeline.runSpecialEpisode({
+        topic: topic.trim(),
+      });
+      isGenerating = false;
+
+      if (result.success) {
+        logger.info({ episodeId: result.episodeId }, '特別回の生成が完了しました');
+        res.json({
+          success: true,
+          episodeId: result.episodeId,
+          episodeTitle: result.episodeTitle,
+        });
+      } else {
+        logger.error({ error: result.error }, '特別回の生成が失敗しました');
+        res.status(500).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      isGenerating = false;
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error: message }, '特別回の生成でエラーが発生しました');
+      res.status(500).json({ success: false, error: message });
+    }
+  });
+
   // RSSフィードの配信
   app.get('/feed.xml', (_req, res) => {
     try {
@@ -858,6 +910,24 @@ function getDashboardHtml(canGenerate: boolean): string {
     </div>
 
     <div class="card">
+      <h2>リクエスト特別回</h2>
+      <p style="font-size: 0.85rem; color: #a08060; margin-bottom: 0.75rem;">
+        トピックや質問を入力すると、Google検索で最新情報を調べて特別回を生成します
+      </p>
+      <textarea
+        id="topicInput"
+        placeholder="入力例:
+・生成AI
+・最近のAIによるコード生成の進化について
+・React 19の新機能とマイグレーションの注意点
+・OpenAIとAnthropicの最新モデルの比較"
+        style="width: 100%; height: 80px; padding: 0.5rem; border: 1px solid #d4a574; border-radius: 8px; resize: vertical; font-family: inherit; margin-bottom: 0.5rem; box-sizing: border-box;"
+      ></textarea>
+      <button id="specialBtn" onclick="generateSpecial()">🎯 特別回を生成</button>
+      <div class="message" id="specialMessage"></div>
+    </div>
+
+    <div class="card">
       <h2>データ統計</h2>
       <div class="stats">
         <div class="stat-item">ピックアップ済み記事: <span class="stat-value" id="processedCount">-</span></div>
@@ -958,6 +1028,17 @@ function getDashboardHtml(canGenerate: boolean): string {
         }
       }
 
+      // 特別回生成ボタン
+      const specialBtn = document.getElementById('specialBtn');
+      if (specialBtn) {
+        specialBtn.disabled = isGenerating;
+        if (isGenerating && specialBtn.textContent !== '⏳ 生成中...') {
+          specialBtn.textContent = '⏳ 生成中...';
+        } else if (!isGenerating && specialBtn.textContent === '⏳ 生成中...') {
+          specialBtn.textContent = '🎯 特別回を生成';
+        }
+      }
+
       // 台本一覧の音声生成ボタン
       const scriptButtons = document.querySelectorAll('.script-actions button');
       scriptButtons.forEach(btn => {
@@ -989,6 +1070,49 @@ function getDashboardHtml(canGenerate: boolean): string {
       }
       btn.disabled = false;
       btn.textContent = '🎬 今すぐ生成';
+      checkStatus();
+    }
+
+    async function generateSpecial() {
+      const topic = document.getElementById('topicInput').value.trim();
+      if (!topic) {
+        alert('トピックを入力してください');
+        return;
+      }
+      if (topic.length > 500) {
+        alert('トピックは500文字以内で入力してください');
+        return;
+      }
+
+      const btn = document.getElementById('specialBtn');
+      const msg = document.getElementById('specialMessage');
+      btn.disabled = true;
+      btn.textContent = '⏳ 生成中...';
+      msg.className = 'message';
+      msg.style.display = 'none';
+
+      try {
+        const res = await fetch('/generate/special', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          msg.textContent = '✅ 特別回生成完了: ' + data.episodeTitle;
+          msg.className = 'message success';
+          loadScripts();
+          document.getElementById('topicInput').value = '';
+        } else {
+          msg.textContent = '❌ エラー: ' + data.error;
+          msg.className = 'message error';
+        }
+      } catch (e) {
+        msg.textContent = '❌ 通信エラー';
+        msg.className = 'message error';
+      }
+      btn.disabled = false;
+      btn.textContent = '🎯 特別回を生成';
       checkStatus();
     }
 

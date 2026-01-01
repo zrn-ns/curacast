@@ -9,6 +9,10 @@ export interface Script {
   articles: Article[];       // 参照記事
   generatedAt: Date;
   estimatedDuration?: number; // 推定再生時間（分）
+  // 特別回用フィールド
+  isSpecialEpisode?: boolean;  // 特別回かどうか
+  requestedTopic?: string;     // リクエストされたトピック
+  sources?: string[];          // 参照元URL（Grounding使用時）
 }
 
 // 台本生成オプション
