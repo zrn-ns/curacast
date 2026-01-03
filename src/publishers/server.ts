@@ -21,6 +21,7 @@ export interface ServerConfig {
 // 生成中かどうかのフラグ
 let isGenerating = false;
 
+
 export function createServer(config: ServerConfig): Express {
   const app = express();
   const logger = getLogger();
@@ -91,8 +92,8 @@ export function createServer(config: ServerConfig): Express {
     }
   });
 
-  // 特別回生成エンドポイント
-  app.post('/generate/special', express.json(), async (req, res) => {
+  // 特別回生成エンドポイント（非同期）
+  app.post('/generate/special', express.json(), (req, res) => {
     if (!config.pipeline) {
       res.status(503).json({ error: 'パイプラインが設定されていません' });
       return;
@@ -115,32 +116,33 @@ export function createServer(config: ServerConfig): Express {
       return;
     }
 
+    const trimmedTopic = topic.trim();
+
+    // 即座にレスポンスを返す
+    res.status(202).json({
+      accepted: true,
+      topic: trimmedTopic,
+      message: '特別回の生成を開始しました。完了後、台本一覧とRSSフィードに追加されます。',
+    });
+
+    // バックグラウンドで処理を実行
     isGenerating = true;
-    logger.info({ topic: topic.trim() }, '特別回の生成を開始します');
+    logger.info({ topic: trimmedTopic }, '特別回の生成を開始します');
 
-    try {
-      const result = await config.pipeline.runSpecialEpisode({
-        topic: topic.trim(),
+    config.pipeline.runSpecialEpisode({ topic: trimmedTopic })
+      .then((result) => {
+        isGenerating = false;
+        if (result.success) {
+          logger.info({ episodeId: result.episodeId }, '特別回の生成が完了しました');
+        } else {
+          logger.error({ error: result.error }, '特別回の生成が失敗しました');
+        }
+      })
+      .catch((error) => {
+        isGenerating = false;
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logger.error({ error: message }, '特別回の生成でエラーが発生しました');
       });
-      isGenerating = false;
-
-      if (result.success) {
-        logger.info({ episodeId: result.episodeId }, '特別回の生成が完了しました');
-        res.json({
-          success: true,
-          episodeId: result.episodeId,
-          episodeTitle: result.episodeTitle,
-        });
-      } else {
-        logger.error({ error: result.error }, '特別回の生成が失敗しました');
-        res.status(500).json({ success: false, error: result.error });
-      }
-    } catch (error) {
-      isGenerating = false;
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      logger.error({ error: message }, '特別回の生成でエラーが発生しました');
-      res.status(500).json({ success: false, error: message });
-    }
   });
 
   // RSSフィードの配信
@@ -928,16 +930,17 @@ function getDashboardHtml(canGenerate: boolean): string {
       <details style="margin-top: 1rem;">
         <summary style="cursor: pointer; color: #8b5a2b; font-size: 0.85rem;">🔧 API経由で生成する</summary>
         <div style="margin-top: 0.5rem; padding: 0.75rem; background: #1e1e1e; border-radius: 8px; font-family: monospace; font-size: 0.75rem; color: #e0e0e0; overflow-x: auto;">
-          <div style="color: #888; margin-bottom: 0.5rem;"># curlでの呼び出し例</div>
+          <div style="color: #888; margin-bottom: 0.5rem;"># リクエスト（即座にレスポンスを返す）</div>
           <div style="white-space: pre-wrap; word-break: break-all;">curl -X POST http://localhost:3000/generate/special \\
   -H "Content-Type: application/json" \\
   -d '{"topic": "生成AIの最新動向"}'</div>
-          <div style="color: #888; margin-top: 1rem; margin-bottom: 0.5rem;"># レスポンス例</div>
+          <div style="color: #888; margin-top: 0.75rem; margin-bottom: 0.5rem;"># レスポンス (202 Accepted)</div>
           <div style="white-space: pre-wrap;">{
-  "success": true,
-  "episodeId": "20260101-abc123",
-  "episodeTitle": "【2026/01/01】[特別回] 生成AIの最新動向"
+  "accepted": true,
+  "topic": "生成AIの最新動向",
+  "message": "特別回の生成を開始しました..."
 }</div>
+          <div style="color: #888; margin-top: 0.75rem; font-size: 0.7rem;">※ 生成完了後、台本一覧とRSSフィードに追加されます</div>
         </div>
       </details>
     </div>
@@ -1102,7 +1105,7 @@ function getDashboardHtml(canGenerate: boolean): string {
       const btn = document.getElementById('specialBtn');
       const msg = document.getElementById('specialMessage');
       btn.disabled = true;
-      btn.textContent = '⏳ 生成中...';
+      btn.textContent = '⏳ リクエスト中...';
       msg.className = 'message';
       msg.style.display = 'none';
 
@@ -1113,12 +1116,11 @@ function getDashboardHtml(canGenerate: boolean): string {
           body: JSON.stringify({ topic }),
         });
         const data = await res.json();
-        if (data.success) {
-          msg.textContent = '✅ 特別回生成完了: ' + data.episodeTitle;
+        if (data.accepted) {
+          msg.textContent = '✅ 生成を開始しました。完了後、台本一覧に追加されます。';
           msg.className = 'message success';
-          loadScripts();
           document.getElementById('topicInput').value = '';
-        } else {
+        } else if (data.error) {
           msg.textContent = '❌ エラー: ' + data.error;
           msg.className = 'message error';
         }
