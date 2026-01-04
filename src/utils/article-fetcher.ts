@@ -45,6 +45,106 @@ async function resolveYahooNewsUrl(pickupUrl: string): Promise<string | null> {
   }
 }
 
+// Yahoo!ニュースの__PRELOADED_STATE__から記事本文を抽出
+function extractYahooNewsContent(html: string): FetchedArticle | null {
+  try {
+    // __PRELOADED_STATE__の開始位置を探す
+    const preloadStart = html.indexOf('__PRELOADED_STATE__');
+    if (preloadStart === -1) {
+      logger.debug('Yahoo!ニュース: __PRELOADED_STATE__が見つかりません');
+      return null;
+    }
+
+    // 次の</script>までを取得
+    const scriptEnd = html.indexOf('</script>', preloadStart);
+    if (scriptEnd === -1) {
+      logger.debug('Yahoo!ニュース: </script>が見つかりません');
+      return null;
+    }
+
+    const content = html.slice(preloadStart, scriptEnd);
+    const eqIdx = content.indexOf('=');
+    if (eqIdx === -1) {
+      logger.debug('Yahoo!ニュース: =が見つかりません');
+      return null;
+    }
+
+    let jsonPart = content.slice(eqIdx + 1).trim();
+    // 末尾のセミコロンを除去
+    if (jsonPart.endsWith(';')) {
+      jsonPart = jsonPart.slice(0, -1);
+    }
+
+    const preloadedState = JSON.parse(jsonPart);
+
+    // タイトルを取得（pageDataから）
+    const pageData = preloadedState?.pageData;
+    const title = pageData?.title ?? '';
+
+    // 本文を抽出: articleDetail.paragraphs を優先、なければ pageData.paragraphs
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let paragraphsData: any[] = [];
+
+    // articleDetailからparagraphsを取得（新しい構造）
+    const articleDetail = preloadedState?.articleDetail;
+    if (articleDetail?.paragraphs && articleDetail.paragraphs.length > 0) {
+      paragraphsData = articleDetail.paragraphs;
+      logger.debug('Yahoo!ニュース: articleDetailからparagraphsを取得');
+    } else if (pageData?.paragraphs && pageData.paragraphs.length > 0) {
+      // フォールバック: pageDataからparagraphsを取得（古い構造）
+      paragraphsData = pageData.paragraphs;
+      logger.debug('Yahoo!ニュース: pageDataからparagraphsを取得');
+    }
+
+    if (paragraphsData.length === 0) {
+      logger.debug('Yahoo!ニュース: paragraphsが見つかりません');
+      return null;
+    }
+
+    // paragraphs[].textDetails[].paragraphItems[].text を結合
+    const paragraphs: string[] = [];
+    for (const paragraph of paragraphsData) {
+      const textDetails = paragraph?.textDetails ?? [];
+      for (const textDetail of textDetails) {
+        const paragraphItems = textDetail?.paragraphItems ?? [];
+        for (const item of paragraphItems) {
+          if (item?.type === 'text' && item?.text) {
+            // 改行を整理して追加
+            const text = item.text.trim();
+            if (text) {
+              paragraphs.push(text);
+            }
+          }
+        }
+      }
+    }
+
+    if (paragraphs.length === 0) {
+      logger.debug('Yahoo!ニュース: 本文段落が見つかりません');
+      return null;
+    }
+
+    const textContent = paragraphs.join('\n\n');
+
+    logger.debug(
+      { title, contentLength: textContent.length },
+      'Yahoo!ニュース記事本文を__PRELOADED_STATE__から抽出'
+    );
+
+    return {
+      title,
+      content: `<article>${paragraphs.map((p) => `<p>${p}</p>`).join('')}</article>`,
+      textContent,
+      excerpt: textContent.slice(0, 200),
+      siteName: 'Yahoo!ニュース',
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.debug({ error: message }, 'Yahoo!ニュース__PRELOADED_STATE__のパースに失敗');
+    return null;
+  }
+}
+
 // 記事の本文を取得
 export async function fetchArticleContent(url: string): Promise<FetchedArticle | null> {
   try {
@@ -79,6 +179,21 @@ export async function fetchArticleContent(url: string): Promise<FetchedArticle |
     }
 
     const html = await response.text();
+
+    // Yahoo!ニュースの記事ページの場合は__PRELOADED_STATE__から抽出を試みる
+    if (targetUrl.includes('news.yahoo.co.jp/articles/')) {
+      const yahooArticle = extractYahooNewsContent(html);
+      if (yahooArticle) {
+        logger.debug(
+          { url: targetUrl, contentLength: yahooArticle.textContent.length },
+          'Yahoo!ニュース記事本文を取得完了'
+        );
+        return yahooArticle;
+      }
+      // 抽出に失敗した場合はReadabilityにフォールバック
+      logger.debug({ url: targetUrl }, 'Yahoo!ニュース__PRELOADED_STATE__抽出に失敗、Readabilityにフォールバック');
+    }
+
     const { document } = parseHTML(html);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
